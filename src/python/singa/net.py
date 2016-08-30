@@ -110,6 +110,7 @@ class FeedForwardNet(object):
             'Cannot do evaluation, as neither loss nor metic is set'
         if self.loss is not None:
             l = self.loss.evaluate(kEval, out, y)
+            print "loss: ", l
         if self.metric is not None:
             m = self.metric.evaluate(out, y)
         return l, m
@@ -147,8 +148,12 @@ class FeedForwardNet(object):
                 outs = output_of_layer[src.name]
                 if type(outs) == list:
                     inputs.append(outs[0])
+                    del output_of_layer[src.name][0]
+                    if len(output_of_layer[src.name]) == 0:
+                        del output_of_layer[src.name]
                 else:
                     inputs.append(outs)
+                    del output_of_layer[src.name]
                 disp_src += '+' + src.name
                 # del output_of_layer[src.name]
             # print disp_src
@@ -180,9 +185,13 @@ class FeedForwardNet(object):
             for dst in self.dst_of_layer[cur.name]:
                 outputs = output_of_layer[dst.name]
                 if type(outputs) == list:
-                    grads.append(outputs[0])
+                    grads.append(outputs[len(outputs)-1])
+                    del output_of_layer[dst.name][len(outputs)-1]
+                    if len(output_of_layer[dst.name]) == 0:
+                        del output_of_layer[dst.name]
                 else:
                     grads.append(outputs)
+                    del output_of_layer[dst.name]
                 # del output_of_layer[dst.name]
             if len(grads) == 1:
                 grads = grads[0]

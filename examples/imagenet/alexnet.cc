@@ -383,7 +383,7 @@ int main(int argc, char **argv) {
   if (pos != -1) num_test_images = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-data");
-  string bin_folder = "imagenet_data";
+  string bin_folder = "/home/xiangrui/imagenet_data";
   if (pos != -1) bin_folder = argv[pos + 1];
 
   pos = singa::ArgPos(argc, argv, "-pfreq");

@@ -106,6 +106,7 @@ bool BinFileReader::ReadField(std::string* content) {
   int ssize = sizeof(size_t);
   if (!PrepareNextField(ssize)) return false;
   int len = *reinterpret_cast<size_t*>(buf_ + offset_);
+  LOG(INFO) << "key len: " << len;
   offset_ += ssize;
   if (!PrepareNextField(len)) return false;
   content->reserve(len);

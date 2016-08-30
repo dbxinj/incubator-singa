@@ -86,6 +86,12 @@ void CnMemPool::Malloc(void **ptr, const size_t size) {
   if (!initialized_)
     Init();
   cnmemStatus_t status = cnmemMalloc(ptr, size, NULL);
+  if (status != cnmemStatus_t::CNMEM_STATUS_SUCCESS) {
+    LOG(INFO) << "required mem size: " << size;
+    FILE *fout;
+    fout = fopen("memlog.txt","w");
+    cnmemPrintMemoryState(fout, NULL);
+  }
   CHECK_EQ(status, cnmemStatus_t::CNMEM_STATUS_SUCCESS)
       << " " << cnmemGetErrorString(status);
 }

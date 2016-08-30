@@ -288,7 +288,12 @@ void ILSVRC::ReadMean(string path) {
   string key, value;
   bfreader.Open(path);
   bfreader.Read(&key, &value);
+  //LOG(INFO) << "key: " << key;
+  //LOG(INFO) << "value: " << value;
   auto ret = decoder->Decode(value);
+  Tensor t = ret[0];
+  //LOG(INFO) << "tensor shape: " << t.shape(0) << "," << t.shape(1) << "," << t.shape(2);
+  //LOG(INFO) << "tensor size: " << t.nDim();
   bfreader.Close();
   mean = ret[0];
 }
