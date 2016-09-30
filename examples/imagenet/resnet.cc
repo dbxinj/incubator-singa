@@ -107,14 +107,57 @@ LayerConf GenDenseConf(string name, int num_output, float std, float wd,
   return conf;
 }
 
-LayerConf GenLRNConf(string name) {
+LayerConf GenBatchNormConf(string name, float std) {
   LayerConf conf;
   conf.set_name(name);
-  conf.set_type(engine + "_lrn");
-  LRNConf *lrn = conf.mutable_lrn_conf();
-  lrn->set_local_size(5);
-  lrn->set_alpha(1e-04);
-  lrn->set_beta(0.75);
+  conf.set_type(engine + "_batchnorm");
+  BatchNormConf *bn = conf.mutable_batchnorm_conf();
+  bn->set_factor(0.9);
+
+  ParamSpec *wspec = conf.add_param();
+  wspec->set_name(name + "_weight");
+  auto wfill = wspec->mutable_filler();
+  wfill->set_type("Constant");
+  wfill->set_value(1);
+
+  ParamSpec *bspec = conf.add_param();
+  bspec->set_name(name + "_bias");
+  auto bfill = bspec->mutable_filler();
+  bfill->set_type("Constant");
+  bfill->set_value(0);
+
+  ParamSpec *meanspec = conf.add_param();
+  meanspec->set_name(name + "_mean");
+  auto meanfill = meanspec->mutable_filler();
+  meanfill->set_type("Constant");
+  meanfill->set_value(0);
+
+  ParamSpec *varspec = conf.add_param();
+  varspec->set_name(name + "_variance");
+  auto varfill = varspec->mutable_filler();
+  varfill->set_type("Constant");
+  varfill->set_value(0);
+  return conf;
+}
+
+LayerConf GenSplitConf(string name) {
+  LayerConf conf;
+  conf.set_name(name);
+  conf.set_type("singa_split");
+  return conf;
+}
+
+LayerConf GenMergeConf(string name) {
+  LayerConf conf;
+  conf.set_name(name);
+  conf.set_type("singa_merge");
+  return conf;
+}
+
+LayerConf GenSoftmaxConf(string name) {
+  LayerConf conf;
+  conf.set_name(name);
+  conf.set_type(engine + "_softmax");
   return conf;
 }
 
@@ -134,33 +177,94 @@ LayerConf GenDropoutConf(string name, float dropout_ratio) {
   return conf;
 }
 
+std::shared_ptr<Layer> BuildingBlock(FeedForwardNet& net, string layer_name, int nb_filter,
+            int stride, float std, std::shared_ptr<Layer> src) {
+  std::shared_ptr<Layer> split = net.Add(GenSplitConf("split" + layer_name), src);
+  std::shared_ptr<Layer> bn_br1 = nullptr;
+  if (stride > 1) {
+    net.Add(GenConvConf("conv" + layer_name + "_br1", nb_filter, 1, stride, 0, std), split);
+    bn_br1 = net.Add(GenBatchNormConf("bn" + layer_name + "_br1", std));
+  }
+  net.Add(GenConvConf("conv" + layer_name + "_br2a", nb_filter, 3, stride, 1, std), split);
+  net.Add(GenBatchNormConf("bn" + layer_name + "_br2a", std));
+  net.Add(GenReLUConf("relu" + layer_name + "_br2a"));
+  net.Add(GenConvConf("conv" + layer_name + "_br2b", nb_filter, 3, 1, 1, std));
+  std::shared_ptr<Layer> bn2 = net.Add(GenBatchNormConf("bn" + layer_name + "_br2b", std));
+  if (stride > 1)
+   return net.Add(GenMergeConf("merge" + layer_name), vector<std::shared_ptr<Layer>>{bn_br1, bn2});
+  else return net.Add(GenMergeConf("merge" + layer_name), vector<std::shared_ptr<Layer>>{split, bn2});
+}
+
+
 FeedForwardNet CreateNet() {
   FeedForwardNet net;
-  Shape s{3, 227, 227};
+  Shape s{3, 224, 224};
 
-  net.Add(GenConvConf("conv1", 96, 11, 4, 0, 0.01), &s);
+  net.Add(GenConvConf("conv1", 64, 7, 2, 3, 0.01), &s);
+  net.Add(GenBatchNormConf("bn1", 0.01));
   net.Add(GenReLUConf("relu1"));
-  net.Add(GenPoolingConf("pool1", true, 3, 2, 0));
-  net.Add(GenLRNConf("lrn1"));
-  net.Add(GenConvConf("conv2", 256, 5, 1, 2, 0.01, 1.0));
-  net.Add(GenReLUConf("relu2"));
-  net.Add(GenPoolingConf("pool2", true, 3, 2, 0));
-  net.Add(GenLRNConf("lrn2"));
-  net.Add(GenConvConf("conv3", 384, 3, 1, 1, 0.01));
-  net.Add(GenReLUConf("relu3"));
-  net.Add(GenConvConf("conv4", 384, 3, 1, 1, 0.01, 1.0));
-  net.Add(GenReLUConf("relu4"));
-  net.Add(GenConvConf("conv5", 256, 3, 1, 1, 0.01, 1.0));
-  net.Add(GenReLUConf("relu5"));
-  net.Add(GenPoolingConf("pool5", true, 3, 2, 0));
+  std::shared_ptr<Layer> pool1 = net.Add(GenPoolingConf("pool1", true, 3, 2, 1));
+
+  std::shared_ptr<Layer> b2a = BuildingBlock(net, "2a", 64, 1, 0.01, pool1);
+  std::shared_ptr<Layer> b2b = BuildingBlock(net, "2b", 64, 1, 0.01, b2a);
+  //std::shared_ptr<Layer> b2c = BuildingBlock(net, "2c", 64, 1, 0.01, b2b);
+
+  std::shared_ptr<Layer> b3a = BuildingBlock(net, "3a", 128, 2, 0.01, b2b);
+  std::shared_ptr<Layer> b3b = BuildingBlock(net, "3b", 128, 1, 0.01, b3a);
+  //std::shared_ptr<Layer> b3c = BuildingBlock(net, "3c", 128, 1, 0.01, b3b);
+  //std::shared_ptr<Layer> b3d = BuildingBlock(net, "3d", 128, 1, 0.01, b3c);
+
+  std::shared_ptr<Layer> b4a = BuildingBlock(net, "4a", 256, 2, 0.01, b3b);
+  std::shared_ptr<Layer> b4b = BuildingBlock(net, "4b", 256, 1, 0.01, b4a);
+  //std::shared_ptr<Layer> b4c = BuildingBlock(net, "4c", 256, 1, 0.01, b4b);
+  //std::shared_ptr<Layer> b4d = BuildingBlock(net, "4d", 256, 1, 0.01, b4c);
+  //std::shared_ptr<Layer> b4e = BuildingBlock(net, "4e", 256, 1, 0.01, b4d);
+  //std::shared_ptr<Layer> b4f = BuildingBlock(net, "4f", 256, 1, 0.01, b4e);
+
+  std::shared_ptr<Layer> b5a = BuildingBlock(net, "5a", 512, 2, 0.01, b4b);
+  //std::shared_ptr<Layer> b5b = BuildingBlock(net, "5b", 512, 1, 0.01, b5a);
+  BuildingBlock(net, "5b", 512, 1, 0.01, b5a);
+
+  net.Add(GenPoolingConf("pool5", false, 7, 1, 0));
   net.Add(GenFlattenConf("flat"));
-  net.Add(GenDenseConf("ip6", 4096, 0.005, 1, 1.0));
-  net.Add(GenReLUConf("relu6"));
-  net.Add(GenDropoutConf("drop6", 0.5));
-  net.Add(GenDenseConf("ip7", 4096, 0.005, 1, 1.0));
-  net.Add(GenReLUConf("relu7"));
-  net.Add(GenDropoutConf("drop7", 0.5));
-  net.Add(GenDenseConf("ip8", 1000, 0.01, 1));
+  net.Add(GenDenseConf("ip6", 1000, 0.01, 1));
+
+  return net;
+}
+
+FeedForwardNet CreateNet2() {
+  FeedForwardNet net;
+  Shape s{3, 224, 224};
+
+  net.Add(GenConvConf("conv1", 64, 7, 2, 3, 0.01), &s);
+  net.Add(GenBatchNormConf("bn1", 0.01));
+  net.Add(GenReLUConf("relu1"));
+  std::shared_ptr<Layer> pool1 = net.Add(GenPoolingConf("pool1", true, 3, 2, 1));
+
+  std::shared_ptr<Layer> b2a = BuildingBlock(net, "2a", 64, 1, 0.01, pool1);
+  std::shared_ptr<Layer> b2b = BuildingBlock(net, "2b", 64, 1, 0.01, b2a);
+  //std::shared_ptr<Layer> b2c = BuildingBlock(net, "2c", 64, 1, 0.01, b2b);
+
+  std::shared_ptr<Layer> b3a = BuildingBlock(net, "3a", 128, 2, 0.01, b2b);
+  std::shared_ptr<Layer> b3b = BuildingBlock(net, "3b", 128, 1, 0.01, b3a);
+  //std::shared_ptr<Layer> b3c = BuildingBlock(net, "3c", 128, 1, 0.01, b3b);
+  //std::shared_ptr<Layer> b3d = BuildingBlock(net, "3d", 128, 1, 0.01, b3c);
+
+  std::shared_ptr<Layer> b4a = BuildingBlock(net, "4a", 256, 2, 0.01, b3b);
+  std::shared_ptr<Layer> b4b = BuildingBlock(net, "4b", 256, 1, 0.01, b4a);
+  //std::shared_ptr<Layer> b4c = BuildingBlock(net, "4c", 256, 1, 0.01, b4b);
+  //std::shared_ptr<Layer> b4d = BuildingBlock(net, "4d", 256, 1, 0.01, b4c);
+  //std::shared_ptr<Layer> b4e = BuildingBlock(net, "4e", 256, 1, 0.01, b4d);
+  //std::shared_ptr<Layer> b4f = BuildingBlock(net, "4f", 256, 1, 0.01, b4e);
+
+  std::shared_ptr<Layer> b5a = BuildingBlock(net, "5a", 512, 2, 0.01, b4b);
+  //std::shared_ptr<Layer> b5b = BuildingBlock(net, "5b", 512, 1, 0.01, b5a);
+  BuildingBlock(net, "5b", 512, 1, 0.01, b5a);
+
+  net.Add(GenPoolingConf("pool5", false, 7, 1, 0));
+  net.Add(GenFlattenConf("flat"));
+  net.Add(GenDenseConf("ip6-1", 1000, 0.01, 1));
+  net.Add(GenDenseConf("ip6-2", 676, 0.01, 1));
 
   return net;
 }
@@ -297,26 +401,105 @@ void Checkpoint(FeedForwardNet &net, string prefix) {
   LOG(INFO) << "Write snapshot into " << prefix;
 }
 
+/*string GetLayerName(string param_name) {
+  size_t pos = param_name.find("_weight");
+  size_t length = param_name.length();
+  if (pos > length)
+    pos = param_name.find("_bias");
+  if (pos > length)
+    pos = param_name.find("_mean");
+  if (pos > length)
+    pos = param_name.find("_variance");
+  if (pos > length)
+    LOG(FATAL) << "Wrong param name: " << param_name;
+  return param_name.substr(0, pos);
+}
+
+std::shared<ptr> FindLayerByName(FeedForwardNet &net, string name) {
+  for (size_t i = 0; i < net.layers(); i++)
+    if (net.layers().at(i).name() == name)
+      return net.layers().at(i);
+    return nullptr;
+}*/
+
+size_t GetIndexByName(vector<ParamSpec> specs, string name) {
+  for (size_t i = 0; i < specs.size(); i++)
+    if (specs[i].name() == name) return i;
+  return specs.size();
+}
+
+void UpdateParam(Tensor& param, Tensor value) {
+  CHECK_EQ(param.Size(), value.Size());
+  param.CopyData(value);
+}
+
+void SetParams(ParamSpec& spec) {
+  spec.set_lr_mult(0);
+  spec.set_decay_mult(0);
+}
+
 void Train(int num_epoch, float lr, size_t batchsize, size_t train_file_size,
            string bin_folder, size_t num_train_images, size_t num_test_images,
-           size_t pfreq, int nthreads) {
+           size_t pfreq, int nthreads, int state, string model) {
   ILSVRC data;
   data.ReadMean(bin_folder + "/mean.bin");
-  auto net = CreateNet();
-  auto cuda = std::make_shared<CudaGPU>(0);
+  FeedForwardNet net;
+  if (state != 2) net = CreateNet();
+  else net = CreateNet2();
+  size_t nepoch = 0;
+
+  auto cuda = std::make_shared<CudaGPU>(1);
   net.ToDevice(cuda);
   SGD sgd;
   OptimizerConf opt_conf;
   opt_conf.set_momentum(0.9);
   auto reg = opt_conf.mutable_regularizer();
-  reg->set_coefficient(0.0005);
+  reg->set_coefficient(0.0001);
   sgd.Setup(opt_conf);
-  sgd.SetLearningRateGenerator(
-      [lr](int epoch) { return lr * std::pow(0.1, epoch / 20); });
+  if (state == 2)
+    sgd.SetLearningRateGenerator(
+      [lr](int epoch) { return lr * std::pow(0.1, epoch / 5); });
+  else
+    sgd.SetLearningRateGenerator(
+      [lr](int epoch) { return lr * std::pow(0.1, epoch / 15); });
 
   SoftmaxCrossEntropy loss;
   Accuracy acc;
   net.Compile(true, &sgd, &loss, &acc);
+  if (state) { // resume or finetune
+    Snapshot snapshot(model, Snapshot::kRead, 200);
+    size_t index = model.find("snapshot_epoch");
+    nepoch = stoi(model.substr(index + 14));
+    LOG(INFO) << "resume training from epoch: " << nepoch;
+    auto ret = snapshot.Read();
+    // auto names = net.GetParamNames();
+    auto specs = net.GetParamSpecs();
+    auto values = net.GetParamValues();
+    // CHECK_EQ(names.size(), values.size());
+    CHECK_EQ(specs.size(), values.size());
+    for (size_t i = 0; i < ret.size(); i++) {
+      string param_name = ret.at(i).first;
+      Tensor nvalue = ret.at(i).second;
+      LOG(INFO) << "parameter name: " << param_name;
+      size_t idx = GetIndexByName(specs, param_name);
+      LOG(INFO) << "index: " << idx;
+      if (idx >= ret.size()) continue;
+      // if not find corresponding layer, do not need to reload param
+      LOG(INFO) << specs[idx].name() << " : " << values[idx].L1();
+      UpdateParam(values[idx], nvalue);
+      LOG(INFO) << specs[idx].name() << " : " << values[idx].L1();
+      if (state == 2) {
+        // finetune only last building block and fc layer
+        // set lr of other layers to 0 to forbid learning
+        vector<string> ft_layers = {"conv5a", "bn5a", "conv5b", "bn5b", "ip6"};
+        for (size_t i = 0; i < ft_layers.size(); i++) {
+          size_t tmp_idx = param_name.find(ft_layers[i]);
+          if (tmp_idx < ft_layers[i].size()) break;
+          if (i == ft_layers.size() - 1) SetParams(specs[idx]);
+        }
+      }
+    }
+  }
 
   Channel *train_ch = GetChannel("train_perf");
   train_ch->EnableDestStderr(true);
@@ -324,11 +507,15 @@ void Train(int num_epoch, float lr, size_t batchsize, size_t train_file_size,
   val_ch->EnableDestStderr(true);
   size_t num_train_files = num_train_images / train_file_size +
                            (num_train_images % train_file_size ? 1 : 0);
-  for (int epoch = 0; epoch < num_epoch; epoch++) {
+  for (int epoch = (state == 1) ? nepoch+1 : 0; epoch < num_epoch; epoch++) {
     float epoch_lr = sgd.GetLearningRate(epoch);
+    auto names = net.GetParamNames();
+    auto values = net.GetParamValues();
+    for (size_t k = 0; k < names.size(); k++)
+      LOG(INFO) << names[k] << " : " << values[k].L1();
     TrainOneEpoch(net, data, cuda, epoch, bin_folder, num_train_files,
                   batchsize, epoch_lr, train_ch, pfreq, nthreads);
-    if (epoch % 10 == 0 && epoch > 0) {
+    if (epoch % ((state == 2)?5:10) == 0 && epoch > 0) {
       string prefix = "snapshot_epoch" + std::to_string(epoch);
       Checkpoint(net, prefix);
     }
@@ -354,20 +541,23 @@ int main(int argc, char **argv) {
               << "\t-data <folder>: the folder which stores the binary files;\n"
               << "\t-pfreq <int>: the frequency(in batch) of printing current "
                  "model status(loss and accuracy);\n"
-              << "\t-nthreads <int>`: the number of threads to load data which "
-                 "feed to the model.\n";
+              << "\t-nthreads <int>: the number of threads to load data which "
+                 "feed to the model.\n"
+              << "\t-state <string>: train or resume network\n"
+              << "\t-model <folder>: the folder where net parameters"
+                 " are stored\n";
     return 0;
   }
   pos = singa::ArgPos(argc, argv, "-epoch");
-  int nEpoch = 90;
+  int nEpoch = 80;
   if (pos != -1) nEpoch = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-lr");
-  float lr = 0.01;
+  float lr = 0.05;
   if (pos != -1) lr = atof(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-batchsize");
-  int batchsize = 64;
+  int batchsize = 256;
   if (pos != -1) batchsize = atof(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-filesize");
@@ -375,7 +565,7 @@ int main(int argc, char **argv) {
   if (pos != -1) train_file_size = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-ntrain");
-  size_t num_train_images = 1281167;
+  size_t num_train_images = 921415; //1281167;
   if (pos != -1) num_train_images = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-ntest");
@@ -383,20 +573,29 @@ int main(int argc, char **argv) {
   if (pos != -1) num_test_images = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-data");
-  string bin_folder = "/home/xiangrui/imagenet_data";
+  string bin_folder = "/home/xiangrui/jixin/alisc_data";
   if (pos != -1) bin_folder = argv[pos + 1];
 
   pos = singa::ArgPos(argc, argv, "-pfreq");
-  size_t pfreq = 100;
+  size_t pfreq = 500;
   if (pos != -1) pfreq = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-nthreads");
   int nthreads = 12;
   if (pos != -1) nthreads = atoi(argv[pos + 1]);
 
+  pos = singa::ArgPos(argc, argv, "-state");
+  string state = "train";
+  if (pos != -1) state = argv[pos + 1];
+
+  pos = singa::ArgPos(argc, argv, "-snapshot");
+  string snapshot = "snapshot_epoch50";
+  if(pos != -1) snapshot = argv[pos + 1];
+
   LOG(INFO) << "Start training";
   singa::Train(nEpoch, lr, batchsize, train_file_size, bin_folder,
-               num_train_images, num_test_images, pfreq, nthreads);
+          num_train_images, num_test_images, pfreq, nthreads,
+          (state == "resume") ? 1 : ((state == "finetune") ? 2 : 0), snapshot);
   LOG(INFO) << "End training";
 }
 #endif

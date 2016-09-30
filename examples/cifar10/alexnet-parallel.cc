@@ -236,12 +236,12 @@ void Train(float lr, int num_epoch, string data_dir) {
   train_x_2.ToDevice(dev_2);
   train_y_2.ToDevice(dev_2);
 
-  // net.Train(100, num_epoch, train_x, train_y, test_x, test_y);
+  // net.Train(num_epoch, train_x, train_y, 100, test_x, test_y);
 
   LOG(INFO) << "Launching thread...";
   std::thread t1 =
-      net_1.TrainThread(50, num_epoch, train_x_1, train_y_1, test_x, test_y);
-  std::thread t2 = net_2.TrainThread(50, num_epoch, train_x_2, train_y_2);
+      net_1.TrainThread(num_epoch, train_x_1, train_y_1, 50, test_x, test_y);
+  std::thread t2 = net_2.TrainThread(num_epoch, train_x_2, train_y_2, 50);
   t1.join();
   t2.join();
 }

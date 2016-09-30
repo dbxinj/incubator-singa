@@ -184,7 +184,7 @@ void Train(int num_epoch, string data_dir) {
   train_y.ToDevice(dev);
   test_x.ToDevice(dev);
   test_y.ToDevice(dev);
-  net.Train(100, num_epoch, train_x, train_y, test_x, test_y);
+  net.Train(num_epoch, train_x, train_y, 100, test_x, test_y);
 }
 }
 

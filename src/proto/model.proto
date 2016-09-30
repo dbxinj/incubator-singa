@@ -242,6 +242,7 @@ message LayerConf {
   optional MetricConf metric_conf = 200;
   optional BatchNormConf batchnorm_conf = 202;
   optional SplitConf split_conf = 203;
+  optional TripletLossConf triplet_loss_conf = 204;
 }
 
 // Message that stores hyper-parameters used to apply transformation
@@ -316,6 +317,7 @@ message ConcatConf {
   // same dimension for all the bottom blobs.
   // By default, ConcatLayer concatenates blobs along the "channels" axis (1).
   optional int32 axis = 2 [default = 1];
+  optional int32 in_size = 3 [default = 3];
 
   // DEPRECATED: alias for "axis" -- does not support negative indexing.
   optional uint32 concat_dim = 1 [default = 1];
@@ -953,4 +955,16 @@ message BatchNormConf {
 message SplitConf {
   // Indicate the number of outputs
   optional int32 output_size = 1 [default = 2];
+}
+
+message TripletLossConf {
+  // margin for the distance between similar and dissimilar pair
+  optional float margin = 1 [default = 1.0];
+  // The first implementation of this cost did not exactly match the cost of
+  // Hadsell et al 2006 -- using (margin - d^2) instead of (margin - d)^2.
+  // legacy_version = false (the default) uses (margin - d)^2 as proposed in the
+  // Hadsell paper. New models should probably use this version.
+  // legacy_version = true uses (margin - d^2). This is kept to support /
+  // reproduce existing models and results
+  optional bool legacy_version = 2 [default = false];
 }

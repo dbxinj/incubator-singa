@@ -20,8 +20,8 @@
 *************************************************************/
 #include "singa/singa_config.h"
 #ifdef USE_OPENCV
-#ifndef SINGA_EXAMPLES_IMAGENET_ILSVRC12_H_
-#define SINGA_EXAMPLES_IMAGENET_ILSVRC12_H_
+#ifndef SINGA_EXAMPLES_IMAGENET_TRIPLET_H_
+#define SINGA_EXAMPLES_IMAGENET_TRIPLET_H_
 #include <omp.h>
 #include <cstdint>
 #include <fstream>
@@ -44,11 +44,11 @@ using std::string;
 using namespace singa::io;
 namespace singa {
 /// For reading ILSVRC2012 image data as tensors.
-class ILSVRC {
+class TRIPLET {
  public:
   /// Setup encoder, decoder
-  ILSVRC();
-  ~ILSVRC() {
+  TRIPLET();
+  ~TRIPLET() {
     if (encoder != nullptr) delete encoder;
     if (decoder != nullptr) delete decoder;
     if (transformer != nullptr) delete transformer;
@@ -124,7 +124,7 @@ class ILSVRC {
   BinFileWriter *writer = nullptr;
 };
 
-ILSVRC::ILSVRC() {
+TRIPLET::TRIPLET() {
   EncoderConf en_conf;
   en_conf.set_image_dim_order("CHW");
   encoder = new JPGEncoder();
@@ -144,7 +144,7 @@ ILSVRC::ILSVRC() {
   transformer->Setup(trans_conf);
 }
 
-Tensor ILSVRC::ReadImage(string path) {
+Tensor TRIPLET::ReadImage(string path) {
   cv::Mat mat = cv::imread(path, CV_LOAD_IMAGE_COLOR);
   CHECK(mat.data != NULL) << "OpenCV load image fail: " << path;
   cv::Size size(kImageSize, kImageSize);
@@ -168,7 +168,7 @@ Tensor ILSVRC::ReadImage(string path) {
   return image;
 }
 
-void ILSVRC::WriteMean(Tensor &mean, string path) {
+void TRIPLET::WriteMean(Tensor &mean, string path) {
   //Tensor mean_lb(Shape{1}, kInt);
   //int label = 1;
   //mean_lb.CopyDataFromHostPtr<int>(&label, 1);
@@ -182,47 +182,50 @@ void ILSVRC::WriteMean(Tensor &mean, string path) {
   bfwriter.Close();
 }
 
-void ILSVRC::CreateTrainData(string image_list, string input_folder,
+void TRIPLET::CreateTrainData(string image_list, string input_folder,
                              string output_folder, size_t file_size = 12800) {
-  std::vector<std::pair<string, int>> file_list;
+  std::vector<std::tuple<string, string, string>> file_list;
   size_t *sum = new size_t[kImageNBytes];
   for (size_t i = 0; i < kImageNBytes; i++) sum[i] = 0u;
-  string image_file_name;
-  int label;
+  string anchor, pos, neg;
   string outfile;
   std::ifstream image_list_file(image_list.c_str(), std::ios::in);
-  while (image_list_file >> image_file_name >> label)
-    file_list.push_back(std::make_pair(image_file_name, label));
+  while (image_list_file >> anchor >> pos >> neg)
+    file_list.push_back(std::make_tuple(anchor, pos, neg));
   LOG(INFO) << "Data Shuffling";
-  std::shuffle(file_list.begin(), file_list.end(),
-               std::default_random_engine());
-  LOG(INFO) << "Total number of training images is " << file_list.size();
+  //std::shuffle(file_list.begin(), file_list.end(),
+  //             std::default_random_engine());
+  LOG(INFO) << "Total number of training images is " << file_list.size() * 3;
   size_t num_train_images = file_list.size();
   if (file_size == 0) file_size = num_train_images;
   for (size_t imageid = 0; imageid < num_train_images; imageid++) {
-    string path = input_folder + "/" + file_list[imageid].first;
-    Tensor image = ReadImage(path);
-    auto image_data = image.data<unsigned char>();
-    for (size_t i = 0; i < kImageNBytes; i++)
-      sum[i] += static_cast<size_t>(image_data[i]);
-    label = file_list[imageid].second;
-    Tensor lb(Shape{1}, kInt);
-    lb.CopyDataFromHostPtr<int>(&label, 1);
-    std::vector<Tensor> input;
-    input.push_back(image);
-    input.push_back(lb);
-    string encoded_str = encoder->Encode(input);
-    if (writer == nullptr) {
-      writer = new BinFileWriter();
-      outfile = output_folder + "/train" +
+    vector<string> triple;
+    triple.push_back(std::get<0>(file_list[imageid]));
+    triple.push_back(std::get<1>(file_list[imageid]));
+    triple.push_back(std::get<2>(file_list[imageid]));
+    for (size_t j = 0; j < 3; j++) { // index of each triplet
+      std::vector<Tensor> input;
+      string path = input_folder + "/" + triple[j];
+      // LOG(INFO) << path; //
+      Tensor image = ReadImage(path);
+      auto image_data = image.data<unsigned char>();
+      for (size_t i = 0; i < kImageNBytes; i++)
+        sum[i] += static_cast<size_t>(image_data[i]);
+      input.push_back(image);
+      string encoded_str = encoder->Encode(input);
+
+      if (writer == nullptr) {
+        writer = new BinFileWriter();
+        outfile = output_folder + "/train" +
                 std::to_string(imageid / file_size + 1) + ".bin";
-      writer->Open(outfile, kCreate);
+        writer->Open(outfile, kCreate);
+      }
+      writer->Write(path, encoded_str);
     }
-    writer->Write(path, encoded_str);
     if ((imageid + 1) % file_size == 0) {
       writer->Flush();
       writer->Close();
-      LOG(INFO) << "Write " << file_size << " images into " << outfile;
+      LOG(INFO) << "Write " << file_size * 3 << " images into " << outfile;
       delete writer;
       writer = nullptr;
     }
@@ -230,19 +233,19 @@ void ILSVRC::CreateTrainData(string image_list, string input_folder,
   if (writer != nullptr) {
     writer->Flush();
     writer->Close();
-    LOG(INFO) << "Write " << num_train_images % file_size << " images into "
+    LOG(INFO) << "Write " << num_train_images * 3 % file_size << " images into "
               << outfile;
     delete writer;
     writer = nullptr;
   }
   size_t num_file =
       num_train_images / file_size + ((num_train_images % file_size) ? 1 : 0);
-  LOG(INFO) << "Write " << num_train_images << " images into " << num_file
+  LOG(INFO) << "Write " << num_train_images * 3 << " images into " << num_file
             << " binary files";
   Tensor mean = Tensor(Shape{3, kImageSize, kImageSize}, kUChar);
   unsigned char *mean_data = new unsigned char[kImageNBytes];
   for (size_t i = 0; i < kImageNBytes; i++)
-    mean_data[i] = static_cast<unsigned char>(sum[i] / num_train_images);
+    mean_data[i] = static_cast<unsigned char>(sum[i] / (num_train_images * 3));
   mean.CopyDataFromHostPtr<unsigned char>(mean_data, kImageNBytes);
   string mean_path = output_folder + "/mean.bin";
   WriteMean(mean, mean_path);
@@ -250,45 +253,47 @@ void ILSVRC::CreateTrainData(string image_list, string input_folder,
   delete[] sum;
 }
 
-void ILSVRC::CreateEvalData(string image_list, string input_folder,
-                             string output_folder, size_t file_size = 12800) {
-  std::vector<std::pair<string, int>> file_list;
+void TRIPLET::CreateEvalData(string image_list, string input_folder,
+                             string output_folder, size_t file_size = 38400) {
+  std::vector<std::tuple<string, string, string >> file_list;
   size_t *sum = new size_t[kImageNBytes];
   for (size_t i = 0; i < kImageNBytes; i++) sum[i] = 0u;
-  string image_file_name;
-  int label = 0; // evaluation data have no label
+  string anchor, pos, neg;
   string outfile;
   std::ifstream image_list_file(image_list.c_str(), std::ios::in);
-  while (image_list_file >> image_file_name)
-    file_list.push_back(std::make_pair(image_file_name, label));
+  while (image_list_file >> anchor >> pos >> neg)
+    file_list.push_back(std::make_tuple(anchor, pos, neg));
   LOG(INFO) << "NO Data Shuffling";
-  LOG(INFO) << "Total number of training images is " << file_list.size();
+  LOG(INFO) << "Total number of validation images is " << file_list.size() * 3;
   size_t num_train_images = file_list.size();
   if (file_size == 0) file_size = num_train_images;
   for (size_t imageid = 0; imageid < num_train_images; imageid++) {
-    string path = input_folder + "/" + file_list[imageid].first;
-    Tensor image = ReadImage(path);
-    auto image_data = image.data<unsigned char>();
-    for (size_t i = 0; i < kImageNBytes; i++)
-      sum[i] += static_cast<size_t>(image_data[i]);
-    label = file_list[imageid].second;
-    Tensor lb(Shape{1}, kInt);
-    lb.CopyDataFromHostPtr<int>(&label, 1);
-    std::vector<Tensor> input;
-    input.push_back(image);
-    input.push_back(lb);
-    string encoded_str = encoder->Encode(input);
-    if (writer == nullptr) {
-      writer = new BinFileWriter();
-      outfile = output_folder + "/eval" +
+    vector<string> triple;
+    triple.push_back(std::get<0>(file_list[imageid]));
+    triple.push_back(std::get<1>(file_list[imageid]));
+    triple.push_back(std::get<2>(file_list[imageid]));
+    for (size_t j = 0; j < 3; j++) {
+      std::vector<Tensor> input;
+      string path = input_folder + "/" + triple[j];
+      Tensor image = ReadImage(path);
+      auto image_data = image.data<unsigned char>();
+      for (size_t i = 0; i < kImageNBytes; i++)
+        sum[i] += static_cast<size_t>(image_data[i]);
+      input.push_back(image);
+      string encoded_str = encoder->Encode(input);
+
+      if (writer == nullptr) {
+        writer = new BinFileWriter();
+        outfile = output_folder + "/eval" +
                 std::to_string(imageid / file_size + 1) + ".bin";
-      writer->Open(outfile, kCreate);
+        writer->Open(outfile, kCreate);
+      }
+      writer->Write(path, encoded_str);
     }
-    writer->Write(path, encoded_str);
     if ((imageid + 1) % file_size == 0) {
       writer->Flush();
       writer->Close();
-      LOG(INFO) << "Write " << file_size << " images into " << outfile;
+      LOG(INFO) << "Write " << file_size * 3 << " images into " << outfile;
       delete writer;
       writer = nullptr;
     }
@@ -296,7 +301,7 @@ void ILSVRC::CreateEvalData(string image_list, string input_folder,
   if (writer != nullptr) {
     writer->Flush();
     writer->Close();
-    LOG(INFO) << "Write " << num_train_images % file_size << " images into "
+    LOG(INFO) << "Write " << num_train_images * 3 % file_size << " images into "
               << outfile;
     delete writer;
     writer = nullptr;
@@ -308,7 +313,7 @@ void ILSVRC::CreateEvalData(string image_list, string input_folder,
   Tensor mean = Tensor(Shape{3, kImageSize, kImageSize}, kUChar);
   unsigned char *mean_data = new unsigned char[kImageNBytes];
   for (size_t i = 0; i < kImageNBytes; i++)
-    mean_data[i] = static_cast<unsigned char>(sum[i] / num_train_images);
+    mean_data[i] = static_cast<unsigned char>(sum[i] / (num_train_images * 3));
   mean.CopyDataFromHostPtr<unsigned char>(mean_data, kImageNBytes);
   string mean_path = output_folder + "/mean.bin";
   WriteMean(mean, mean_path);
@@ -316,32 +321,34 @@ void ILSVRC::CreateEvalData(string image_list, string input_folder,
   delete[] sum;
 }
 
-void ILSVRC::CreateTestData(string image_list, string input_folder,
+void TRIPLET::CreateTestData(string image_list, string input_folder,
                             string output_folder) {
-  std::vector<std::pair<string, int>> file_list;
-  string image_file_name;
+  std::vector<std::tuple<string, string, string>> file_list;
+  string anchor, pos, neg;
   string outfile = output_folder + "/test.bin";
-  int label;
   std::ifstream image_list_file(image_list.c_str(), std::ios::in);
-  while (image_list_file >> image_file_name >> label)
-    file_list.push_back(std::make_pair(image_file_name, label));
-  LOG(INFO) << "Total number of test images is " << file_list.size();
+  while (image_list_file >> anchor >> pos >> neg)
+    file_list.push_back(std::make_tuple(anchor, pos, neg));
+  LOG(INFO) << "Total number of test images is " << file_list.size() * 3;
   size_t num_test_images = file_list.size();
   for (size_t imageid = 0; imageid < num_test_images; imageid++) {
-    string path = input_folder + "/" + file_list[imageid].first;
-    Tensor image = ReadImage(path);
-    label = file_list[imageid].second;
-    Tensor lb(Shape{1}, singa::kInt);
-    lb.CopyDataFromHostPtr<int>(&label, 1);
-    std::vector<Tensor> input;
-    input.push_back(image);
-    input.push_back(lb);
-    string encoded_str = encoder->Encode(input);
-    if (writer == nullptr) {
-      writer = new BinFileWriter();
-      writer->Open(outfile, kCreate);
+    vector<string> triple;
+    triple.push_back(std::get<0>(file_list[imageid]));
+    triple.push_back(std::get<1>(file_list[imageid]));
+    triple.push_back(std::get<2>(file_list[imageid]));
+    for (size_t j = 0; j < 3; j++) {
+      std::vector<Tensor> input;
+      string path = input_folder + "/" + triple[j];
+      Tensor image = ReadImage(path);
+      input.push_back(image);
+      string encoded_str = encoder->Encode(input);
+
+      if (writer == nullptr) {
+        writer = new BinFileWriter();
+        writer->Open(outfile, kCreate);
+      }
+      writer->Write(path, encoded_str);
     }
-    writer->Write(path, encoded_str);
   }
   if (writer != nullptr) {
     writer->Flush();
@@ -349,10 +356,10 @@ void ILSVRC::CreateTestData(string image_list, string input_folder,
     delete writer;
     writer = nullptr;
   }
-  LOG(INFO) << "Write " << num_test_images << " images into " << outfile;
+  LOG(INFO) << "Write " << num_test_images * 3 << " images into " << outfile;
 }
 
-void ILSVRC::ReadMean(string path) {
+void TRIPLET::ReadMean(string path) {
   BinFileReader bfreader;
   string key, value;
   bfreader.Open(path);
@@ -362,18 +369,18 @@ void ILSVRC::ReadMean(string path) {
   mean = ret[0];
 }
 
-std::thread ILSVRC::AsyncLoadData(int flag, string file, size_t read_size,
+std::thread TRIPLET::AsyncLoadData(int flag, string file, size_t read_size,
                                   Tensor *x, Tensor *y, size_t *n_read,
                                   int nthreads) {
   return std::thread(
       [=]() { LoadData(flag, file, read_size, x, y, n_read, nthreads); });
 }
 
-size_t ILSVRC::LoadData(int flag, string file, size_t read_size, Tensor *x,
+size_t TRIPLET::LoadData(int flag, string file, size_t read_size, Tensor *x,
                         Tensor *y, size_t *n_read, int nthreads) {
   x->Reshape(Shape{read_size, 3, kCropSize, kCropSize});
-  y->AsType(kInt);
-  y->Reshape(Shape{read_size});
+  //y->AsType(kInt);
+  //y->Reshape(Shape{read_size});
   if (file != last_read_file) {
     if (reader != nullptr) {
       reader->Close();
@@ -413,14 +420,14 @@ size_t ILSVRC::LoadData(int flag, string file, size_t read_size, Tensor *x,
   return nimg;
 }
 
-std::thread ILSVRC::AsyncDecodeTransform(int flag, int thid, int nthreads,
+std::thread TRIPLET::AsyncDecodeTransform(int flag, int thid, int nthreads,
                                          vector<string *> images, Tensor *x,
                                          Tensor *y) {
   return std::thread(
       [=]() { DecodeTransform(flag, thid, nthreads, images, x, y); });
 }
 
-void ILSVRC::DecodeTransform(int flag, int thid, int nthreads,
+void TRIPLET::DecodeTransform(int flag, int thid, int nthreads,
                              vector<string *> images, Tensor *x, Tensor *y) {
   int nimg = images.size();
   int start = nimg / nthreads * thid;
@@ -430,7 +437,7 @@ void ILSVRC::DecodeTransform(int flag, int thid, int nthreads,
     auto tmp_image = pair[0] - mean;
     Tensor aug_image = transformer->Apply(flag, tmp_image);
     CopyDataToFrom(x, aug_image, aug_image.Size(), k * aug_image.Size());
-    CopyDataToFrom(y, pair[1], 1, k);
+    //CopyDataToFrom(y, pair[1], 1, k);
   }
   if (thid == 0) {
     for (int k = nimg / nthreads * nthreads; k < nimg; k++) {
@@ -438,11 +445,11 @@ void ILSVRC::DecodeTransform(int flag, int thid, int nthreads,
       auto tmp_image = pair[0] - mean;
       Tensor aug_image = transformer->Apply(flag, tmp_image);
       CopyDataToFrom(x, aug_image, aug_image.Size(), k * aug_image.Size());
-      CopyDataToFrom(y, pair[1], 1, k);
+      //CopyDataToFrom(y, pair[1], 1, k);
     }
   }
 }
 }  // namespace singa
 
-#endif  // SINGA_EXAMPLES_IMAGENET_ILSVRC12_H_
+#endif  // SINGA_EXAMPLES_IMAGENET_TRIPLET_H_
 #endif  // USE_OPENCV

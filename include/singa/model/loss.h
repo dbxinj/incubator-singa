@@ -45,6 +45,7 @@ public:
   /// and the target.
   virtual Tensor Forward(int flag, const Tensor &prediction,
                          const Tensor &target) = 0;
+  virtual Tensor Forward(int flag, const vector<Tensor>& inputs) = 0;
 
   /// Average loss values for all samples in the mini-batch
   /// It calls Forward() internally. The calling pattern should be
@@ -54,8 +55,13 @@ public:
     return Sum<float>(loss) / (1.0f * loss.Size());
   }
 
+  /// Tensor inputs contains three set of samples, i.e.,
+  /// anchor, positive and negative.
+  virtual float Evaluate(int flag, const vector<Tensor> &inputs) = 0;
+
   /// Compute the gradients of the loss values w.r.t. the prediction.
   virtual Tensor Backward() = 0;
+  virtual vector<Tensor> Backward(int flag, const Tensor& grads) = 0;
 };
 
 // ============= Mean Squared Error ===========================================
@@ -67,10 +73,20 @@ class MSE : public Loss {
   /// Users can call Average(const Tensor&) to get the average
   /// loss value over all samples in the batch.
   Tensor Forward(int flag, const Tensor& prediction, const Tensor& target) override;
+  Tensor Forward(int flag, const vector<Tensor>& inputs) override {
+    Tensor out;
+    return out;
+  }
 
   /// Compute the gradients of the loss values w.r.t. the prediction,
   /// which is (prediction-target)/batchsize
   Tensor Backward() override;
+  vector<Tensor> Backward(int flag, const Tensor& grads) {
+    vector<Tensor> out;
+    return out;
+  }
+
+  float Evaluate(int flag, const vector<Tensor> &inputs) override { return 0.f; }
 
  private:
   // to buffer intermediate data, i.e., prediction-target
@@ -89,11 +105,21 @@ class SoftmaxCrossEntropy : public Loss {
   /// Users can call Average(const Tensor&) to get the average
   /// loss value over all samples in the batch.
   Tensor Forward(int flag, const Tensor& prediction, const Tensor& target) override;
+  Tensor Forward(int flag, const vector<Tensor>& inputs) override {
+    Tensor out;
+    return out;
+  }
 
   /// Compute the gradients of the loss values w.r.t. the prediction,
   /// which is: p[idx] - 1 if idx is the truth category's index; else,
   /// p[idx]
   Tensor Backward() override;
+  vector<Tensor> Backward(int flag, const Tensor& grads) override {
+    vector<Tensor> out;
+    return out;
+  }
+
+  float Evaluate(int flag, const vector<Tensor> &inputs) override { return 0.f; }
 
  private:
   // to buffer intermediate data, i.e., probability for each category and
@@ -101,6 +127,45 @@ class SoftmaxCrossEntropy : public Loss {
   std::stack<Tensor> buf_;
 };
 
+// ===============Triplet Error =======================================
+/// Tripletloss for metric learning
+class TripletLoss : public Loss {
+ public:
+  void Setup(const LayerConf &conf);
+  Tensor Forward(int flag, const Tensor& prediction, const Tensor& target) {
+    return prediction;
+  }
+
+  Tensor Backward() {
+    Tensor out;
+    return out;
+  }
+
+  /// Compute the loss values for each sample/instance given the inputs,
+  /// which is max(0, margin + (p[0] - p[1]) ^ 2 - (p[0] - p[2]) ^ 2), margin is
+  /// to distinguish between positive pair and negative pair, p[] is the feature vector
+  /// for each sample/instance.
+  Tensor Forward(int flag, const vector<Tensor>& inputs) override;
+
+  /// Compute the gradiens of the loss values, return values contain gradients
+  /// for anchors, positive samples and negative samples, respectively.
+  vector<Tensor> Backward(int flag, const Tensor& grads) override;
+
+  float Evaluate(int flag, const vector<Tensor> &inputs) override {
+    Tensor loss = Forward(flag, inputs);
+    return Sum<float>(loss) / (1.0f * loss.Size());
+  }
+
+  const float margin() { return margin_; }
+  const Tensor mask() { return buf_.top(); }
+
+ private:
+  // to buffer intermediate data, i.e., probability for each category and
+  // the target (ground truth)
+  std::stack<Tensor> buf_;
+  float margin_ = 1.f;
+};
+
 }  // namespace singa
 
-#endif  // SINGA_MODEL_LOSS_H_
+#endif  // singa_model_loss_h_

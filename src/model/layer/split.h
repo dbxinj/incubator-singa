@@ -28,7 +28,7 @@ namespace singa {
 class Split : public Layer {
  public:
   /// \copydoc Layer::layer_type()
-  // const std::string layer_type() const override { return "Split"; }
+  const std::string layer_type() const override { return "Split"; }
 
   /// \copydoc Layer::Setup(const LayerConf&);
   void Setup(const Shape& in_sample, const LayerConf& conf) override;
