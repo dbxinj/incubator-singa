@@ -484,7 +484,7 @@ void Train(int num_epoch, float lr, size_t batchsize, size_t train_file_size,
     TrainOneEpoch(net, data, cuda, epoch, bin_folder, num_train_files,
                   batchsize, epoch_lr, train_ch, pfreq, nthreads);
     if (epoch % ((state == 2) ? 5 : 10) == 0 && epoch > 0) {
-      string prefix = "snapshot_epoch" + std::to_string(epoch);
+      string prefix = "5e-2/snapshot_epoch" + std::to_string(epoch);
       Checkpoint(net, prefix);
     }
     TestOneEpoch(net, data, cuda, epoch, bin_folder, num_test_images, batchsize,
@@ -521,7 +521,7 @@ int main(int argc, char **argv) {
   if (pos != -1) nEpoch = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-lr");
-  float lr = 0.005;
+  float lr = 0.05;
   if (pos != -1) lr = atof(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-batchsize");
