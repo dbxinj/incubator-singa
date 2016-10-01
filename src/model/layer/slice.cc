@@ -40,7 +40,7 @@ void Slice::Setup(const Shape& in_sample, const LayerConf& conf) {
 const vector<Tensor> Slice::Forward(int flag, const vector<Tensor>& inputs) {
   /// currently only support slice equally.
   vector<Tensor> outputs;
-  CHECK_LE(inputs.size(), 1u);
+  CHECK_GE(inputs.size(), 1u);
   size_t samples = inputs.at(0).shape(0) / output_size_;
   size_t data_size = inputs.at(0).Size() / inputs.at(0).shape(0);
   Shape shape = inputs.at(0).shape();
@@ -54,7 +54,7 @@ const vector<Tensor> Slice::Forward(int flag, const vector<Tensor>& inputs) {
     Tensor tmp(shape);
     for (size_t i = 0; i < samples; i++)
       tmp.CopyDataFromHostPtr<float>(data + (output_size_ * i + k) * data_size,
-          data_size);
+          data_size, i * data_size);
     tmp.ToDevice(dev);
     outputs.push_back(tmp);
   }
@@ -77,7 +77,7 @@ const std::pair<vector<Tensor>, vector<Tensor>> Slice::Backward(
   }
   input_shape.at(axis_) *= output_size_;
   Tensor grad(input_shape);
-  size_t data_size = out_grads.at(0).Size() / outputs.at(0).shape(0);
+  size_t data_size = out_grads.at(0).Size() / out_grads.at(0).shape(0);
   for (size_t k = 0; k < output_size_; k++) {
     const float* data = out_grads.at(k).data<float>();
     for (size_t i = 0; i < samples; i++) {

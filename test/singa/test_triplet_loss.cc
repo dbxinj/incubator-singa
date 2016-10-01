@@ -36,9 +36,9 @@ class TestTriplet : public::testing::Test {
     p.CopyDataFromHostPtr(pdat, sizeof(pdat) / sizeof(float));
     n.CopyDataFromHostPtr(ndat, sizeof(ndat) / sizeof(float));
   }
-  const float adat[6] = {0.1, 0.6, 1.5, 2.4, 1.1, 0.5};
-  const float pdat[6] = {0.2, 0.4, 0.5, 2.0, 1.2, 0.7};
-  const float ndat[6] = {0.8, 0.1, 1.9, 1.5, 1.1, 0.5};
+  const float adat[6] = {0.1, 0.2, 1.3, 2.4, 1.5, 0.6};
+  const float pdat[6] = {0.2, 5.2, 0.3, 2.0, 1.2, 0.7};
+  const float ndat[6] = {0.8, 0.1, 1.9, 1.4, 1.1, 4.5};
 
   singa::Tensor a, p, n;
 };
@@ -46,23 +46,25 @@ class TestTriplet : public::testing::Test {
 TEST_F(TestTriplet, Forward) {
   singa::TripletLoss trip;
 
+  float margin = 10.f;
   singa::LayerConf conf;
   singa::TripletLossConf* triplet_loss_conf = conf.mutable_triplet_loss_conf();
-  triplet_loss_conf->set_margin(1.0);
+  triplet_loss_conf->set_margin(margin);
   trip.Setup(conf);
-  EXPECT_EQ(1.0, trip.margin());
+  EXPECT_EQ(margin, trip.margin());
 
   const Tensor loss = trip.Forward(singa::kEval, {a, p, n});
   auto ldat = loss.data<float>();
 
   for (size_t i = 0; i < loss.Size(); i++) {
     float l = 0.f;
+    float pos = 0.f, neg = 0.f;
     for (size_t j = 0; j < a.Size() / loss.Size(); j++) {
       size_t idx = i * a.Size() / loss.Size() + j;
-      l += (adat[idx] - pdat[idx]) * (adat[idx] - pdat[idx]) -
-          (adat[idx] - ndat[idx]) * (adat[idx] - ndat[idx]);
+      pos += (adat[idx] - pdat[idx]) * (adat[idx] - pdat[idx]);
+      neg += (adat[idx] - ndat[idx]) * (adat[idx] - ndat[idx]);
     }
-    l = std::max(0.f, 1.f + l);
+    l = std::max(0.f, margin + std::min(margin, pos) - neg);
     EXPECT_FLOAT_EQ(ldat[i], l);
   }
 }
@@ -70,17 +72,18 @@ TEST_F(TestTriplet, Forward) {
 TEST_F(TestTriplet, Backward) {
   singa::TripletLoss trip;
 
+  float margin = 10.f;
   singa::LayerConf conf;
   singa::TripletLossConf* triplet_loss_conf = conf.mutable_triplet_loss_conf();
-  triplet_loss_conf->set_margin(1.0);
+  triplet_loss_conf->set_margin(margin);
   trip.Setup(conf);
-  EXPECT_EQ(1.0, trip.margin());
+  EXPECT_EQ(margin, trip.margin());
 
   const Tensor loss = trip.Forward(singa::kEval, {a, p, n});
   auto mask = trip.mask();
   auto mdat = mask.data<float>();
-  for (size_t i = 0; i < mask.Size(); i++)
-    EXPECT_FLOAT_EQ(mdat[i], 1.f);
+  EXPECT_FLOAT_EQ(mdat[0], 1.f);
+  EXPECT_FLOAT_EQ(mdat[1], 0.f);
 
   const vector<Tensor> grads = trip.Backward(singa::kEval, loss);
   auto da = grads.at(0).data<float>();
@@ -96,9 +99,15 @@ TEST_F(TestTriplet, Backward) {
     diff_np[i] = ndat[i] - pdat[i];
   }
 
-  for (size_t i = 0; i < a.Size(); i++) {
-    EXPECT_FLOAT_EQ(da[i], diff_np[i] * 2.f);
-    EXPECT_FLOAT_EQ(dp[i], diff_ap[i] * (-2.f));
+  for (size_t i = 0; i < a.shape(1); i++) {
+    EXPECT_FLOAT_EQ(da[i], diff_an[i] * (-2.f));
+    EXPECT_FLOAT_EQ(dp[i], 0.f);
     EXPECT_FLOAT_EQ(dn[i], diff_an[i] * 2.f);
+  }
+
+  for (size_t i = 0; i < a.shape(1); i++) {
+    EXPECT_FLOAT_EQ(da[3 + i], 0.f);
+    EXPECT_FLOAT_EQ(dp[3 + i], 0.f);
+    EXPECT_FLOAT_EQ(dn[3 + i], 0.f);
   }
 }

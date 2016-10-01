@@ -297,27 +297,27 @@ void TrainOneEpoch(FeedForwardNet &net, TRIPLET &data,
       if (n_read < batchsize) continue;
       //CHECK_EQ(train_x.shape(0), train_y.shape(0));
       ttr.Tick();
-      LOG(INFO) << "start training: " << train_x.shape(0);
+      //LOG(INFO) << "start training: " << train_x.shape(0);
       auto ret = net.TrainOnBatch(epoch, train_x);
-      LOG(INFO) << "training samples: " << train_x.shape(0);
+      //LOG(INFO) << "training samples: " << train_x.shape(0);
       train_time += ttr.Elapsed();
       loss += ret.first;
       //metric += ret.second;
       b++;
-    }
-    if (b % pfreq == 0) {
-      train_ch->Send(
-          "Epoch " + std::to_string(epoch) + ", training loss = " +
-          std::to_string(loss / b) + ", lr = " + std::to_string(lr) +
-          ", time of loading " + std::to_string(batchsize) + " images = " +
-          std::to_string(load_time / b) +
-          " ms, time of training (batchsize = " + std::to_string(batchsize) +
-          ") = " + std::to_string(train_time / b) + " ms.");
-      loss = 0.0f;
-      //metric = 0.0f;
-      load_time = 0.0f;
-      train_time = 0.0f;
-      b = 0;
+      if (b % pfreq == 0) {
+        train_ch->Send(
+            "Epoch " + std::to_string(epoch) + ", training loss = " +
+            std::to_string(loss / b) + ", lr = " + std::to_string(lr) +
+            ", time of loading " + std::to_string(batchsize) + " images = " +
+            std::to_string(load_time / b) +
+            " ms, time of training (batchsize = " + std::to_string(batchsize) +
+            ") = " + std::to_string(train_time / b) + " ms.");
+        loss = 0.0f;
+        //metric = 0.0f;
+        load_time = 0.0f;
+        train_time = 0.0f;
+        b = 0;
+      }
     }
   }
 }
@@ -326,7 +326,7 @@ void TestOneEpoch(FeedForwardNet &net, TRIPLET &data,
                   std::shared_ptr<Device> device, int epoch, string bin_folder,
                   size_t num_test_images, size_t batchsize, Channel *val_ch,
                   int nthreads) {
-  float loss = 0.0f, metric = 0.0f;
+  float loss = 0.0f;//, metric = 0.0f;
   float load_time = 0.0f, eval_time = 0.0f;
   size_t n_read;
   string binfile = bin_folder + "/test.bin";
@@ -337,7 +337,7 @@ void TestOneEpoch(FeedForwardNet &net, TRIPLET &data,
                 nthreads);
   load_time += timer.Elapsed();
   Tensor test_x(prefetch_x.shape(), device);
-  Tensor test_y(prefetch_y.shape(), device, kInt);
+  //Tensor test_y(prefetch_y.shape(), device, kInt);
   int remain = (int)num_test_images - n_read;
   CHECK_EQ(n_read, batchsize);
   std::thread th;
@@ -350,25 +350,25 @@ void TestOneEpoch(FeedForwardNet &net, TRIPLET &data,
       if (n_read < batchsize) break;
     }
     test_x.CopyData(prefetch_x);
-    test_y.CopyData(prefetch_y);
+    //test_y.CopyData(prefetch_y);
     timer.Tick();
     th = data.AsyncLoadData(kEval, binfile, batchsize, &prefetch_x, &prefetch_y,
                             &n_read, nthreads);
 
-    CHECK_EQ(test_x.shape(0), test_y.shape(0));
+    //CHECK_EQ(test_x.shape(0), test_y.shape(0));
     tte.Tick();
-    auto ret = net.EvaluateOnBatch(test_x, test_y);
+    auto ret = net.EvaluateOnBatch(test_x);//, test_y);
     eval_time += tte.Elapsed();
     ret.first.ToHost();
     ret.second.ToHost();
     loss += Sum(ret.first);
-    metric += Sum(ret.second);
+    //metric += Sum(ret.second);
   }
   loss /= num_test_images;
-  metric /= num_test_images;
+  //metric /= num_test_images;
   val_ch->Send("Epoch " + std::to_string(epoch) + ", val loss = " +
-               std::to_string(loss) + ", accuracy = " + std::to_string(metric) +
-               ", time of loading " + std::to_string(num_test_images) +
+               std::to_string(loss) + ", time of loading " +
+               std::to_string(num_test_images) +
                " images = " + std::to_string(load_time) +
                " ms, time of evaluating " + std::to_string(num_test_images) +
                " images = " + std::to_string(eval_time) + " ms.");
@@ -425,6 +425,11 @@ void Train(int num_epoch, float lr, size_t batchsize, size_t train_file_size,
       [lr](int epoch) { return lr * std::pow(0.1, epoch / 15); });
 
   TripletLoss loss;
+  LayerConf conf;
+  singa::TripletLossConf* triplet_loss_conf = conf.mutable_triplet_loss_conf();
+  triplet_loss_conf->set_margin(100.0);
+  loss.Setup(conf);
+
   Accuracy acc;
   net.Compile(true, &sgd, &loss, &acc);
   if (state) { // resume or finetune
@@ -452,8 +457,8 @@ void Train(int num_epoch, float lr, size_t batchsize, size_t train_file_size,
       if (state == 2) {
         // finetune only last building block and fc layer
         // set lr of other layers to 0 to forbid learning
-        vector<string> ft_layers = {"conv5a", "bn5a", "conv5b",
-                           "bn5b", "ip6-1a", "ip6-1p", "ip6-1n"};
+        vector<string> ft_layers = {/*"conv5a", "bn5a", "conv5b", "bn5b",*/
+                      "ip6-1a", "ip6-1p", "ip6-1n"};
         for (size_t i = 0; i < ft_layers.size(); i++) {
           size_t tmp_idx = param_name.find(ft_layers[i]);
           if (tmp_idx < ft_layers[i].size()) break;
@@ -512,35 +517,35 @@ int main(int argc, char **argv) {
     return 0;
   }
   pos = singa::ArgPos(argc, argv, "-epoch");
-  int nEpoch = 80;
+  int nEpoch = 50;
   if (pos != -1) nEpoch = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-lr");
-  float lr = 0.05;
+  float lr = 0.005;
   if (pos != -1) lr = atof(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-batchsize");
-  int batchsize = 256;
+  int batchsize = 192;
   if (pos != -1) batchsize = atof(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-filesize");
-  size_t train_file_size = 1280;
+  size_t train_file_size = 3840;
   if (pos != -1) train_file_size = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-ntrain");
-  size_t num_train_images = 921415; //1281167;
+  size_t num_train_images = 384000; //1281167;
   if (pos != -1) num_train_images = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-ntest");
-  size_t num_test_images = 50000;
+  size_t num_test_images = 38400;
   if (pos != -1) num_test_images = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-data");
-  string bin_folder = "/home/xiangrui/jixin/alisc_data";
+  string bin_folder = "/home/xiangrui/jixin/alisc_triplet_data";
   if (pos != -1) bin_folder = argv[pos + 1];
 
   pos = singa::ArgPos(argc, argv, "-pfreq");
-  size_t pfreq = 500;
+  size_t pfreq = 200;
   if (pos != -1) pfreq = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-nthreads");

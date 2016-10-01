@@ -42,8 +42,8 @@ TEST(Slice, Setup) {
 }
 
 TEST(Slice, ForwardCPU) {
-  const float x[] = {1.f,  2.f, 3.f, -2.f, -3.f, -1.f,
-                     -1.f, 2.f, -1.f, -2.f, -2.f, -1.f};
+  const float x[] = {1.f,  2.f, 3.f, 4.f, 5.f, 6.f,
+                     -1.f, -2.f, -3.f, -4.f, -5.f, -6.f};
   size_t n = sizeof(x) / sizeof(float);
   size_t batchsize = 6, c = 1, h = 2, w = 1;
   singa::Tensor in(singa::Shape{batchsize, h, w, c});
@@ -62,8 +62,9 @@ TEST(Slice, ForwardCPU) {
 
   for (size_t i = 0; i < out.size(); i++) {
     const float *yptr = out.at(i).data<float>();
-    for (size_t j = 0; j < n / 3; j++)
-      EXPECT_FLOAT_EQ(yptr[j], x[i*4+j]);
+    for (size_t k = 0; k < 2; k++)
+      for (size_t j = 0; j < 2; j++)
+        EXPECT_FLOAT_EQ(yptr[k*2+j], x[i*2+k*6+j]);
   }
 }
 

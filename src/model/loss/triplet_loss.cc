@@ -39,13 +39,20 @@ Tensor TripletLoss::Forward(int flag, const vector<Tensor>& inputs) {
   buf_.push(diff_np);
   SumColumns(Square(diff_ap), &dist_pos);
   SumColumns(Square(diff_an), &dist_neg);
+  buf_.push(dist_pos > margin_);
+  buf_.push(dist_pos <= margin_);
   buf_.push((dist_pos - dist_neg + margin_) > 0.f);
-  return ReLU(dist_pos - dist_neg + margin_);
+  return ReLU(ReLU(dist_pos * (-1.f) + margin_) * (-1.f)
+      - dist_neg + margin_ * 2.f);
 }
 
 vector<Tensor> TripletLoss::Backward(int flag, const Tensor& grads) {
   vector<Tensor> in_grads;
-  Tensor mask = buf_.top();
+  Tensor mask_all = buf_.top();
+  buf_.pop();
+  Tensor mask_pos = buf_.top();
+  buf_.pop();
+  Tensor mask_neg = buf_.top();
   buf_.pop();
   Tensor diff_np = buf_.top();
   buf_.pop();
@@ -53,11 +60,18 @@ vector<Tensor> TripletLoss::Backward(int flag, const Tensor& grads) {
   buf_.pop();
   Tensor diff_ap = buf_.top();
   buf_.pop();
-  MultColumn(mask, &diff_np);
-  MultColumn(mask, &diff_ap);
-  MultColumn(mask, &diff_an);
-  in_grads.push_back(diff_np * 2.f);
-  in_grads.push_back(diff_ap * (-2.f));
+  MultColumn(mask_all, &diff_np);
+  MultColumn(mask_all, &diff_ap);
+  MultColumn(mask_all, &diff_an);
+  Shape shape = diff_np.shape();
+  Tensor diff_np_pos = diff_np;
+  Tensor diff_ap_pos = diff_ap;
+  Tensor diff_an_neg = diff_an;
+  MultColumn(mask_pos, &diff_np_pos);
+  MultColumn(mask_pos, &diff_ap_pos);
+  MultColumn(mask_neg, &diff_an_neg);
+  in_grads.push_back((diff_np_pos - diff_an_neg) * 2.f);
+  in_grads.push_back(diff_ap_pos * (-2.f));
   in_grads.push_back(diff_an * 2.f);
   return in_grads;
 }

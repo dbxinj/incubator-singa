@@ -367,7 +367,7 @@ const std::pair<float, float> FeedForwardNet::TrainOnBatch(int epoch,
   }
   //LOG(INFO) << "compute loss...";
   float loss = loss_->Evaluate(flag, feat);
-  //LOG(INFO) << "loss is : " << loss << ", size: " << size;
+  LOG(INFO) << "loss is : " << loss << ", size: " << size;
   vector<Tensor> grad = loss_->Backward(flag, x);
   Tensor out_grad(fea.shape());
   for (size_t i = 0; i < grad.size(); i++) {
@@ -552,7 +552,8 @@ const vector<Tensor> FeedForwardNet::Backward(int flag, const Tensor& grad) {
       if (dst_.find(layer) == dst_.end()) { // TODO(jixin)
         LOG(FATAL) << "current model does not support multiple outputs";
       } else {
-        for (int j = dst_[layer].size() - 1; j >= 0; j--) {
+        //for (int j = dst_[layer].size() - 1; j >= 0; j--) {
+        for (size_t j = 0; j < dst_[layer].size(); j++) {
           std::shared_ptr<Layer> tmplayer = dst_[layer].at(j);
           // LOG(INFO) << "top grads shape: " << VecToStr(output_grads[tmplayer].top().shape()); //
           tmp.push_back(output_grads[tmplayer].top());

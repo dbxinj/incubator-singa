@@ -40,6 +40,7 @@ public:
   virtual void ToDevice(std::shared_ptr<Device> device) {}
   /// Set meta fields from user configurations.
   virtual void Setup(const LossConf &conf) {}
+  virtual void Setup(const LayerConf &conf) {}
 
   /// Compute the loss values for each sample/instance given the prediction
   /// and the target.
@@ -131,7 +132,7 @@ class SoftmaxCrossEntropy : public Loss {
 /// Tripletloss for metric learning
 class TripletLoss : public Loss {
  public:
-  void Setup(const LayerConf &conf);
+  void Setup(const LayerConf &conf) override;
   Tensor Forward(int flag, const Tensor& prediction, const Tensor& target) {
     return prediction;
   }
