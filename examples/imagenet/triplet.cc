@@ -49,7 +49,7 @@ int main(int argc, char **argv) {
   if (pos != -1) test_image_list = argv[pos + 1];
 
   pos = singa::ArgPos(argc, argv, "-testfolder");
-  string test_image_folder = "/home/xiangrui/jixin/alisc15/eval_image";
+  string test_image_folder = "/home/xiangrui/jixin/alisc15/query_image";
   if (pos != -1) test_image_folder = argv[pos + 1];
 
   pos = singa::ArgPos(argc, argv, "-outdata");
@@ -62,11 +62,11 @@ int main(int argc, char **argv) {
 
   singa::TRIPLET data;
   LOG(INFO) << "Creating training and test data...";
-  data.CreateTrainData(train_image_list, train_image_folder, bin_folder,
-                       train_file_size);
+  //data.CreateTrainData(train_image_list, train_image_folder, bin_folder,
+  //                     train_file_size);
   //data.CreateEvalData(train_image_list, train_image_folder, bin_folder,
   //                     train_file_size);
-  //data.CreateTestData(test_image_list, test_image_folder, bin_folder);
+  data.CreateTestData(test_image_list, test_image_folder, bin_folder);
   LOG(INFO) << "Data created!";
   return 0;
 }

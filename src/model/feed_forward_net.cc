@@ -367,7 +367,7 @@ const std::pair<float, float> FeedForwardNet::TrainOnBatch(int epoch,
   }
   //LOG(INFO) << "compute loss...";
   float loss = loss_->Evaluate(flag, feat);
-  LOG(INFO) << "loss is : " << loss << ", size: " << size;
+  // LOG(INFO) << "loss is : " << loss << ", size: " << size;
   vector<Tensor> grad = loss_->Backward(flag, x);
   Tensor out_grad(fea.shape());
   for (size_t i = 0; i < grad.size(); i++) {
@@ -463,7 +463,7 @@ const Tensor FeedForwardNet::Forward(int flag, const Tensor& data,
 
   /// layers_ are topological sorted
   for (auto layer : layers_) {
-     LOG(INFO) << "forward: " << layer->name(); //
+    // LOG(INFO) << "forward: " << layer->name(); //
     if (layer_type_[layer] == "onetomany") {
       vector<Tensor> tmp;
       std::shared_ptr<Layer> tmplayer = nullptr;
@@ -497,7 +497,7 @@ const Tensor FeedForwardNet::Forward(int flag, const Tensor& data,
     } else
       LOG(FATAL) << "invalid layer type: " << layer_type_[layer];
     // LOG(INFO) << "==================================="; //
-    LOG(INFO) << "layer_name: " << layer_name;
+    // LOG(INFO) << "layer_name: " << layer_name;
     if (layer_name == layer->name()) {
       Tensor out = output[layer].front();
       output.erase(layer);
@@ -618,16 +618,19 @@ std::pair<Tensor, Tensor> FeedForwardNet::Evaluate(const Tensor& x,
 
 std::pair<Tensor, Tensor> FeedForwardNet::EvaluateOnBatch(const Tensor& x) {
   int flag = kEval;
-  const Tensor fea = Forward(flag, x);
+  Tensor fea = Forward(flag, x);
   size_t input_size = 3;
   Shape shape = fea.shape();
-  shape.at(0) /= 3;
+  auto dev = fea.device();
+  fea.ToHost();
+  const float *data = fea.data<float>();
+  shape.at(0) /= input_size;
   size_t size = fea.Size() / input_size;
   vector<Tensor> feat;
-  const float *data = fea.data<float>();
   for (size_t i = 0; i < input_size; i++) {
     Tensor tmp(Shape{shape});
     tmp.CopyDataFromHostPtr(data + i * size, size);
+    //tmp.ToDevice(dev);
     feat.push_back(tmp);
   }
   const Tensor l = loss_->Forward(flag, feat);

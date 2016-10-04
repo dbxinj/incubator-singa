@@ -23,7 +23,7 @@
 #ifdef USE_OPENCV
 #include <cmath>
 #include <string>
-#include "./ilsvrc12.h"
+#include "./triplet.h"
 #include "singa/io/snapshot.h"
 #include "singa/model/feed_forward_net.h"
 #include "singa/model/initializer.h"
@@ -228,7 +228,7 @@ FeedForwardNet CreateNet() {
 
   net.Add(GenPoolingConf("pool5", false, 7, 1, 0));
   net.Add(GenFlattenConf("flat"));
-  net.Add(GenDenseConf("ip6-2", 676, 0.01, 1));
+  net.Add(GenDenseConf("ip6", 676, 0.01, 1));
 
   return net;
 }
@@ -244,16 +244,18 @@ string Serialize(Tensor data) {
   return *out;
 }
 
-void ExtractOneBatch(FeedForwardNet &net, ILSVRC &data,
+void ExtractOnBatch(FeedForwardNet &net, TRIPLET &data,
                    std::shared_ptr<Device> device, string bin_folder,
                    size_t num_eval_files, size_t batchsize, string layer_name,
-                   string tar_file, size_t pfreq, int nthreads) {
+                   string tar_folder, size_t pfreq, int nthreads) {
   float load_time = 0.0f, extract_time = 0.0f;
   size_t b = 0;
   size_t n_read;
   size_t num_extract_images = 0;
-  BinFileWriter bfwriter;
-  bfwriter.Open(tar_file, kCreate);
+  BinFileWriter *bfwriter = new BinFileWriter();
+  size_t file_num = 1u;
+  string outfile = tar_folder + "/feat" + std::to_string(file_num++) + ".bin";
+  bfwriter->Open(outfile, kCreate);
   Timer timer, ttr;
   Tensor prefetch_x, prefetch_y;
   string binfile = bin_folder + "/eval1.bin";
@@ -265,6 +267,7 @@ void ExtractOneBatch(FeedForwardNet &net, ILSVRC &data,
   Tensor eval_x(prefetch_x.shape(), device);
   //Tensor train_y(prefetch_y.shape(), device, kInt);
   std::thread th;
+  LOG(INFO) << "number of eval files: " << num_eval_files;
   for (size_t fno = 1; fno <= num_eval_files; fno++) {
     binfile = bin_folder + "/eval" + std::to_string(fno) + ".bin";
     while (true) {
@@ -292,26 +295,39 @@ void ExtractOneBatch(FeedForwardNet &net, ILSVRC &data,
       //CHECK_EQ(train_x.shape(0), train_y.shape(0));
       ttr.Tick();
       //auto ret = net.TrainOnBatch(epoch, train_x, train_y);
-      LOG(INFO) << "layer name : " << layer_name;
-      Tensor ret = net.Extract(eval_x, layer_name);
-      Tensor feat(ret.shape());
-      feat.CopyData(ret);
-      feat.ToHost();
-      LOG(INFO) << "feature shape dim: " << feat.nDim();
+      //LOG(INFO) << "layer name : " << layer_name;
+      Tensor fea = net.Extract(eval_x, layer_name);
+      fea.ToHost();
+      //LOG(INFO) << "feature shape dim: " << fea.nDim();
       extract_time += ttr.Elapsed();
       // LOG(INFO) << "extract " << batchsize << " image features";
       num_extract_images += batchsize;
       //char* out = new char[feat.Size() * 4];
-      string* out = new string;
-      const float *data = feat.data<float>();
-      LOG(INFO) << "data size:" << feat.Size();
-      LOG(INFO) << "data shape:" << feat.shape(0) << feat.shape(1);
+      //string* out = new string;
+      const float *data = fea.data<float>();
+      //LOG(INFO) << "data size:" << fea.Size();
+      //LOG(INFO) << "data shape:" << fea.shape(0) << fea.shape(1);
       //const char *s = reinterpret_cast<const char*>(ddata);
       //memcpy(&out, s, feat.Size() * sizeof(float) / sizeof(char));
-      const char *s = reinterpret_cast<const char*>(data);
-      memcpy(out, s, feat.Size() * sizeof(float) / sizeof(char));
-      bfwriter.Write(tar_file, *out);
-      bfwriter.Flush();
+      Shape shape = fea.shape();
+      shape.at(0) /= fea.shape(0);
+      size_t size = fea.Size() / fea.shape(0);
+      for (size_t i = 0; i < fea.shape(0); i++) {
+        Tensor tmp(shape);
+        tmp.CopyDataFromHostPtr<float>(data + i * size, size);
+        const float *sdata = tmp.data<float>();
+        //if(!i) LOG(INFO) << "first 3 data: " << sdata[0] << sdata[1] << sdata[2];
+        const char *s = reinterpret_cast<const char*>(sdata);
+        string out(s, size * sizeof(float) / sizeof(char));
+        //memcpy(out, s, fea.Size() * sizeof(float) / sizeof(char));
+        if (bfwriter == nullptr) {
+          bfwriter = new BinFileWriter();
+          outfile = tar_folder + "/feat" + std::to_string(file_num++) + ".bin";
+          bfwriter->Open(outfile, kCreate);
+        }
+        bfwriter->Write(tar_folder, out);
+        //delete[] out;
+      }
       b++;
     }
     if (b % pfreq == 0) {
@@ -323,38 +339,95 @@ void ExtractOneBatch(FeedForwardNet &net, ILSVRC &data,
       load_time = 0.0f;
       extract_time = 0.0f;
       b = 0;
+      bfwriter->Flush();
+      bfwriter->Close();
+      delete bfwriter;
+      bfwriter = nullptr;
     }
   }
   if (n_read < batchsize && n_read > 0) {
-    eval_x.CopyData(prefetch_x);
-    Tensor ret = net.Extract(eval_x, layer_name);
-    Tensor feat(ret.shape());
-    feat.CopyData(ret);
+    eval_x.SetValue(0.f);
+    const float* d = prefetch_x.data<float>();
+    size_t size = prefetch_x.Size();
+    eval_x.CopyDataFromHostPtr(d, size);
+    Tensor fea = net.Extract(eval_x, layer_name);
+    fea.ToHost();
     LOG(INFO) << "extract " << n_read << " features";
     num_extract_images += n_read;
-    string *out = new string;
-    const float *data = feat.data<float>();
-    LOG(INFO) << "data size:" << feat.Size();
-    const char *s = reinterpret_cast<const char*>(data);
-    memcpy(out, s, feat.Size() * sizeof(float) / sizeof(char));
-    bfwriter.Write(tar_file, *out);
-    delete out;
-    bfwriter.Flush();
+    //string *out = new string;
+    const float *data = fea.data<float>();
+    LOG(INFO) << "data size:" << fea.Size();
+    Shape shape = fea.shape();
+    shape.at(0) /= fea.shape(0);
+    size = fea.Size() / fea.shape(0);
+    for (size_t i = 0; i < prefetch_x.shape(0); i++) {
+      Tensor tmp(shape);
+      tmp.CopyDataFromHostPtr<float>(data + i * size, size);
+      const float* sdata = tmp.data<float>();
+      const char *s = reinterpret_cast<const char*>(sdata);
+      string out(s, size * sizeof(float) / sizeof(char));
+      //memcpy(out, s, fea.Size() * sizeof(float) / sizeof(char));
+
+      bfwriter->Write(tar_folder, out);
+      //delete[] out;
+    }
   }
-  bfwriter.Close();
+  if (bfwriter != nullptr) {
+    bfwriter->Flush();
+    bfwriter->Close();
+    delete bfwriter;
+    bfwriter = nullptr;
+  }
   LOG(INFO) << "extract " << num_extract_images << " features done.";
-  LOG(INFO) << "save features to " << tar_file;
+  LOG(INFO) << "save features to " << tar_folder;
 }
 
-void Checkpoint(FeedForwardNet &net, string prefix) {
-  Snapshot snapshot(prefix, Snapshot::kWrite, 200);
-  auto names = net.GetParamNames();
-  auto values = net.GetParamValues();
-  for (size_t k = 0; k < names.size(); k++) {
-    values.at(k).ToHost();
-    snapshot.Write(names.at(k), values.at(k));
+void ExtractQuery(FeedForwardNet &net, TRIPLET &data,
+                   std::shared_ptr<Device> device, string bin_folder,
+                   string layer_name, string tar_folder,
+                   int nthreads) {
+  float load_time = 0.0f;
+  size_t n_read;
+  size_t num_extract_images = 0;
+  BinFileWriter *bfwriter = new BinFileWriter();
+  string outfile = tar_folder + "/qfeat.bin";
+  LOG(INFO) << "output file: " << outfile;
+  bfwriter->Open(outfile, kCreate);
+  Timer timer, ttr;
+  Tensor prefetch_x, prefetch_y;
+  string binfile = bin_folder + "/query.bin";
+  timer.Tick();
+  data.LoadData(kEval, binfile, 100, &prefetch_x, &prefetch_y, &n_read,
+                nthreads);
+  CHECK_EQ(100, n_read);
+  load_time += timer.Elapsed();
+  Tensor eval_x(prefetch_x.shape(), device);
+  eval_x.CopyData(prefetch_x);
+  LOG(INFO) << "get query data.";
+  Tensor fea = net.Extract(eval_x, layer_name);
+  fea.ToHost();
+  const float* d = fea.data<float>();
+  num_extract_images += n_read;
+  Shape shape = fea.shape();
+  shape.at(0) /= fea.shape(0);
+  size_t size = fea.Size() / fea.shape(0);
+  LOG(INFO) << "size: " << size;
+  for (size_t i = 0; i < fea.shape(0); i++) {
+    Tensor tmp(shape);
+    tmp.CopyDataFromHostPtr<float>(d + i * size, size);
+    const float* sdata = tmp.data<float>();
+    const char *s = reinterpret_cast<const char*>(sdata);
+    string out(s, size * sizeof(float) / sizeof(char));
+    //memcpy(out, s, fea.Size() * sizeof(float) / sizeof(char));
+
+    bfwriter->Write(tar_folder, out);
+    //delete[] out;
   }
-  LOG(INFO) << "Write snapshot into " << prefix;
+  bfwriter->Flush();
+  bfwriter->Close();
+  delete bfwriter;
+  LOG(INFO) << "extract " << num_extract_images << " features done.";
+  LOG(INFO) << "save features to " << tar_folder;
 }
 
 size_t GetIndexByName(vector<ParamSpec> specs, string name) {
@@ -374,9 +447,9 @@ void SetParams(ParamSpec& spec) {
 }
 
 void Extract(size_t batchsize, size_t train_file_size, string bin_folder,
-           size_t num_train_images, string& layer_name, string tar_file,
+           size_t num_eval_images, string& layer_name, string tar_folder,
            size_t pfreq, int nthreads, string snapshot) {
-  ILSVRC data;
+  TRIPLET data;
   data.ReadMean(bin_folder + "/mean.bin");
   FeedForwardNet net = CreateNet();
   // size_t nepoch = 0;
@@ -410,21 +483,23 @@ void Extract(size_t batchsize, size_t train_file_size, string bin_folder,
     //LOG(INFO) << "parameter name: " << param_name;
     size_t idx = GetIndexByName(specs, param_name);
     //LOG(INFO) << "index: " << idx;
-    if (idx >= ret.size()) continue;
+    if (idx >= specs.size()) continue;
     // if not find corresponding layer, do not need to reload param
-    //LOG(INFO) << specs[idx].name() << " : " << values[idx].L1();
+    LOG(INFO) << specs[idx].name() << " : " << values[idx].L1();
     UpdateParam(values[idx], nvalue);
-    //LOG(INFO) << specs[idx].name() << " : " << values[idx].L1();
+    LOG(INFO) << specs[idx].name() << " : " << values[idx].L1();
   }
 
-  size_t num_train_files = num_train_images / train_file_size +
-                           (num_train_images % train_file_size ? 1 : 0);
+  size_t num_eval_files = num_eval_images / train_file_size +
+                           (num_eval_images % train_file_size ? 1 : 0);
 
-  LOG(INFO) << "target file: " << tar_file;
+  LOG(INFO) << "target file: " << tar_folder;
   LOG(INFO) << "snapshot : " << snapshot;
   LOG(INFO) << "layer name : " << layer_name;
-  ExtractOneBatch(net, data, cuda, bin_folder, num_train_files,
-                  batchsize, layer_name, tar_file, pfreq, nthreads);
+  LOG(INFO) << "number of evaluate files: " << num_eval_files;
+  ExtractOnBatch(net, data, cuda, bin_folder, num_eval_files,
+                  batchsize, layer_name, tar_folder, pfreq, nthreads);
+  ExtractQuery(net, data, cuda, bin_folder, layer_name, tar_folder, nthreads);
 }
 }
 
@@ -452,7 +527,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   pos = singa::ArgPos(argc, argv, "-batchsize");
-  int batchsize = 8;
+  int batchsize = 256;
   if (pos != -1) batchsize = atof(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-filesize");
@@ -460,23 +535,23 @@ int main(int argc, char **argv) {
   if (pos != -1) train_file_size = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-neval");
-  size_t num_train_images = 1069124; //1281167;
-  if (pos != -1) num_train_images = atoi(argv[pos + 1]);
+  size_t num_eval_images = 1069124; //1281167;
+  if (pos != -1) num_eval_images = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-data");
   string bin_folder = "/home/xiangrui/jixin/alisc_eval_data";
   if (pos != -1) bin_folder = argv[pos + 1];
 
   pos = singa::ArgPos(argc, argv, "-layer");
-  string layer_name = "ip6-2";
+  string layer_name = "flat";
   if (pos != -1) layer_name = argv[pos + 1];
 
   pos = singa::ArgPos(argc, argv, "-tarfile");
-  string tar_file = "";
-  if(pos != -1) tar_file = argv[pos + 1];
+  string tar_folder = "/home/xiangrui/jixin/alisc_feat";
+  if(pos != -1) tar_folder = argv[pos + 1];
 
   pos = singa::ArgPos(argc, argv, "-pfreq");
-  size_t pfreq = 500;
+  size_t pfreq = 100;
   if (pos != -1) pfreq = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-nthreads");
@@ -484,12 +559,12 @@ int main(int argc, char **argv) {
   if (pos != -1) nthreads = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-snapshot");
-  string snapshot = "snapshot_epoch50";
+  string snapshot = "snapshot_epoch35";
   if(pos != -1) snapshot = argv[pos + 1];
 
   LOG(INFO) << "Start training";
   singa::Extract(batchsize, train_file_size, bin_folder,
-          num_train_images, layer_name, tar_file, pfreq, nthreads, snapshot);
+          num_eval_images, layer_name, tar_folder, pfreq, nthreads, snapshot);
   LOG(INFO) << "End training";
 }
 #endif

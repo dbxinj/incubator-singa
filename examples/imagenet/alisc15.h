@@ -20,8 +20,8 @@
 *************************************************************/
 #include "singa/singa_config.h"
 #ifdef USE_OPENCV
-#ifndef SINGA_EXAMPLES_IMAGENET_ILSVRC12_H_
-#define SINGA_EXAMPLES_IMAGENET_ILSVRC12_H_
+#ifndef SINGA_EXAMPLES_IMAGENET_ALISC15_H_
+#define SINGA_EXAMPLES_IMAGENET_ALISC15_H_
 #include <omp.h>
 #include <cstdint>
 #include <fstream>
@@ -44,11 +44,11 @@ using std::string;
 using namespace singa::io;
 namespace singa {
 /// For reading ILSVRC2012 image data as tensors.
-class ILSVRC {
+class ALISC {
  public:
   /// Setup encoder, decoder
-  ILSVRC();
-  ~ILSVRC() {
+  ALISC();
+  ~ALISC() {
     if (encoder != nullptr) delete encoder;
     if (decoder != nullptr) delete decoder;
     if (transformer != nullptr) delete transformer;
@@ -124,7 +124,7 @@ class ILSVRC {
   BinFileWriter *writer = nullptr;
 };
 
-ILSVRC::ILSVRC() {
+ALISC::ALISC() {
   EncoderConf en_conf;
   en_conf.set_image_dim_order("CHW");
   encoder = new JPGEncoder();
@@ -144,7 +144,7 @@ ILSVRC::ILSVRC() {
   transformer->Setup(trans_conf);
 }
 
-Tensor ILSVRC::ReadImage(string path) {
+Tensor ALISC::ReadImage(string path) {
   cv::Mat mat = cv::imread(path, CV_LOAD_IMAGE_COLOR);
   CHECK(mat.data != NULL) << "OpenCV load image fail: " << path;
   cv::Size size(kImageSize, kImageSize);
@@ -168,7 +168,7 @@ Tensor ILSVRC::ReadImage(string path) {
   return image;
 }
 
-void ILSVRC::WriteMean(Tensor &mean, string path) {
+void ALISC::WriteMean(Tensor &mean, string path) {
   //Tensor mean_lb(Shape{1}, kInt);
   //int label = 1;
   //mean_lb.CopyDataFromHostPtr<int>(&label, 1);
@@ -182,17 +182,16 @@ void ILSVRC::WriteMean(Tensor &mean, string path) {
   bfwriter.Close();
 }
 
-void ILSVRC::CreateTrainData(string image_list, string input_folder,
+void ALISC::CreateTrainData(string image_list, string input_folder,
                              string output_folder, size_t file_size = 12800) {
   std::vector<std::pair<string, int>> file_list;
   size_t *sum = new size_t[kImageNBytes];
   for (size_t i = 0; i < kImageNBytes; i++) sum[i] = 0u;
-  string image_file_name;
-  int label;
+  string image_file_a, image_file_p, image_file_n;
   string outfile;
   std::ifstream image_list_file(image_list.c_str(), std::ios::in);
-  while (image_list_file >> image_file_name >> label)
-    file_list.push_back(std::make_pair(image_file_name, label));
+  while (image_list_file >> image_file_a >> image_file_p >> image_file_n)
+    file_list.push_back(std::make_tuple(image_file_a, image_file_p, image_file_n));
   LOG(INFO) << "Data Shuffling";
   std::shuffle(file_list.begin(), file_list.end(),
                std::default_random_engine());
@@ -250,7 +249,7 @@ void ILSVRC::CreateTrainData(string image_list, string input_folder,
   delete[] sum;
 }
 
-void ILSVRC::CreateEvalData(string image_list, string input_folder,
+void ALISC::CreateEvalData(string image_list, string input_folder,
                              string output_folder, size_t file_size = 12800) {
   std::vector<std::pair<string, int>> file_list;
   size_t *sum = new size_t[kImageNBytes];
@@ -316,12 +315,12 @@ void ILSVRC::CreateEvalData(string image_list, string input_folder,
   delete[] sum;
 }
 
-void ILSVRC::CreateTestData(string image_list, string input_folder,
+void ALISC::CreateTestData(string image_list, string input_folder,
                             string output_folder) {
   //std::vector<std::pair<string, int>> file_list;
-  std::vector<string> file_list;
+  vector<string> file_list;
   string image_file_name;
-  string outfile = output_folder + "query.bin";//"/test.bin";
+  string outfile = output_folder + "/query.bin";
   //int label;
   std::ifstream image_list_file(image_list.c_str(), std::ios::in);
   //while (image_list_file >> image_file_name >> label)
@@ -331,7 +330,7 @@ void ILSVRC::CreateTestData(string image_list, string input_folder,
   LOG(INFO) << "Total number of test images is " << file_list.size();
   size_t num_test_images = file_list.size();
   for (size_t imageid = 0; imageid < num_test_images; imageid++) {
-    //string path = input_folder + "/" + file_list[imageid].first;
+    // string path = input_folder + "/" + file_list[imageid].first;
     string path = input_folder + "/" + file_list[imageid];
     Tensor image = ReadImage(path);
     //label = file_list[imageid].second;
@@ -356,7 +355,7 @@ void ILSVRC::CreateTestData(string image_list, string input_folder,
   LOG(INFO) << "Write " << num_test_images << " images into " << outfile;
 }
 
-void ILSVRC::ReadMean(string path) {
+void ALISC::ReadMean(string path) {
   BinFileReader bfreader;
   string key, value;
   bfreader.Open(path);
@@ -366,14 +365,14 @@ void ILSVRC::ReadMean(string path) {
   mean = ret[0];
 }
 
-std::thread ILSVRC::AsyncLoadData(int flag, string file, size_t read_size,
+std::thread ALISC::AsyncLoadData(int flag, string file, size_t read_size,
                                   Tensor *x, Tensor *y, size_t *n_read,
                                   int nthreads) {
   return std::thread(
       [=]() { LoadData(flag, file, read_size, x, y, n_read, nthreads); });
 }
 
-size_t ILSVRC::LoadData(int flag, string file, size_t read_size, Tensor *x,
+size_t ALISC::LoadData(int flag, string file, size_t read_size, Tensor *x,
                         Tensor *y, size_t *n_read, int nthreads) {
   x->Reshape(Shape{read_size, 3, kCropSize, kCropSize});
   y->AsType(kInt);
@@ -417,14 +416,14 @@ size_t ILSVRC::LoadData(int flag, string file, size_t read_size, Tensor *x,
   return nimg;
 }
 
-std::thread ILSVRC::AsyncDecodeTransform(int flag, int thid, int nthreads,
+std::thread ALISC::AsyncDecodeTransform(int flag, int thid, int nthreads,
                                          vector<string *> images, Tensor *x,
                                          Tensor *y) {
   return std::thread(
       [=]() { DecodeTransform(flag, thid, nthreads, images, x, y); });
 }
 
-void ILSVRC::DecodeTransform(int flag, int thid, int nthreads,
+void ALISC::DecodeTransform(int flag, int thid, int nthreads,
                              vector<string *> images, Tensor *x, Tensor *y) {
   int nimg = images.size();
   int start = nimg / nthreads * thid;
@@ -448,5 +447,5 @@ void ILSVRC::DecodeTransform(int flag, int thid, int nthreads,
 }
 }  // namespace singa
 
-#endif  // SINGA_EXAMPLES_IMAGENET_ILSVRC12_H_
+#endif  // SINGA_EXAMPLES_IMAGENET_ALISC15_H_
 #endif  // USE_OPENCV

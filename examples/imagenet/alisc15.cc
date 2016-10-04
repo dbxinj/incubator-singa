@@ -45,15 +45,15 @@ int main(int argc, char **argv) {
   if (pos != -1) train_image_folder = argv[pos + 1];
 
   pos = singa::ArgPos(argc, argv, "-testlist");
-  string test_image_list = "/home/xiangrui/jixin/alisc15/val.txt";
+  string test_image_list = "/home/xiangrui/jixin/alisc15/tri_train_q.txt";
   if (pos != -1) test_image_list = argv[pos + 1];
 
   pos = singa::ArgPos(argc, argv, "-testfolder");
-  string test_image_folder = "/home/xiangrui/jixin/alisc15/Competition";
+  string test_image_folder = "/home/xiangrui/jixin/alisc15/query_image";//Competition";
   if (pos != -1) test_image_folder = argv[pos + 1];
 
   pos = singa::ArgPos(argc, argv, "-outdata");
-  string bin_folder = "/home/xiangrui/jixin/alisc_eval_data";
+  string bin_folder = "/home/xiangrui/jixin/alisc_triplet_data";
   if (pos != -1) bin_folder = argv[pos + 1];
 
   pos = singa::ArgPos(argc, argv, "-filesize");
@@ -63,9 +63,9 @@ int main(int argc, char **argv) {
   LOG(INFO) << "Creating training and test data...";
   //data.CreateTrainData(train_image_list, train_image_folder, bin_folder,
   //                     train_file_size);
-  data.CreateEvalData(train_image_list, train_image_folder, bin_folder,
-                       train_file_size);
-  //data.CreateTestData(test_image_list, test_image_folder, bin_folder);
+  //data.CreateEvalData(train_image_list, train_image_folder, bin_folder,
+  //                     train_file_size);
+  data.CreateTestData(test_image_list, test_image_folder, bin_folder);
   LOG(INFO) << "Data created!";
   return 0;
 }

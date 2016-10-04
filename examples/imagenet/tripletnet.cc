@@ -244,10 +244,11 @@ FeedForwardNet CreateNet() {
   slice_points.push_back(128);
   std::shared_ptr<Layer> slice = net.Add(GenSliceConf("slice", slice_points));
   //net.Add(GenDenseConf("ip6-1", 1000, 0.01, 1));
-  std::shared_ptr<Layer> ip6a = net.Add(GenDenseConf("ip6-1a", 100, 0.01, 1));
-  std::shared_ptr<Layer> ip6p = net.Add(GenDenseConf("ip6-1p", 100, 0.01, 1), slice);
-  std::shared_ptr<Layer> ip6n = net.Add(GenDenseConf("ip6-1n", 100, 0.01, 1), slice);
-  net.Add(GenConcatConf("concat"), {ip6a, ip6p, ip6n});
+  //std::shared_ptr<Layer> ip6a = net.Add(GenDenseConf("ip6-1a", 100, 0.01, 1));
+  //std::shared_ptr<Layer> ip6p = net.Add(GenDenseConf("ip6-1p", 100, 0.01, 1), slice);
+  //std::shared_ptr<Layer> ip6n = net.Add(GenDenseConf("ip6-1n", 100, 0.01, 1), slice);
+  //net.Add(GenConcatConf("concat"), {ip6a, ip6p, ip6n});
+  net.Add(GenConcatConf("concat"), {slice, slice, slice});
 
   return net;
 }
@@ -304,6 +305,7 @@ void TrainOneEpoch(FeedForwardNet &net, TRIPLET &data,
       loss += ret.first;
       //metric += ret.second;
       b++;
+    }
       if (b % pfreq == 0) {
         train_ch->Send(
             "Epoch " + std::to_string(epoch) + ", training loss = " +
@@ -318,7 +320,6 @@ void TrainOneEpoch(FeedForwardNet &net, TRIPLET &data,
         train_time = 0.0f;
         b = 0;
       }
-    }
   }
 }
 
@@ -363,8 +364,11 @@ void TestOneEpoch(FeedForwardNet &net, TRIPLET &data,
     ret.second.ToHost();
     loss += Sum(ret.first);
     //metric += Sum(ret.second);
+    //LOG(INFO) << "size of testing samples: " << ret.first.shape(0);
+    //LOG(INFO) << "loss: " << Sum(ret.first) / (batchsize / 3);
   }
-  loss /= num_test_images;
+  // each triple is one test sample
+  loss /= (num_test_images / 3);
   //metric /= num_test_images;
   val_ch->Send("Epoch " + std::to_string(epoch) + ", val loss = " +
                std::to_string(loss) + ", time of loading " +
@@ -409,7 +413,7 @@ void Train(int num_epoch, float lr, size_t batchsize, size_t train_file_size,
   FeedForwardNet net = CreateNet();
   size_t nepoch = 0;
 
-  auto cuda = std::make_shared<CudaGPU>(1);
+  auto cuda = std::make_shared<CudaGPU>(2);
   net.ToDevice(cuda);
   SGD sgd;
   OptimizerConf opt_conf;
@@ -427,7 +431,7 @@ void Train(int num_epoch, float lr, size_t batchsize, size_t train_file_size,
   TripletLoss loss;
   LayerConf conf;
   singa::TripletLossConf* triplet_loss_conf = conf.mutable_triplet_loss_conf();
-  triplet_loss_conf->set_margin(100.0);
+  triplet_loss_conf->set_margin(50.0);
   loss.Setup(conf);
 
   Accuracy acc;
@@ -443,13 +447,14 @@ void Train(int num_epoch, float lr, size_t batchsize, size_t train_file_size,
     auto values = net.GetParamValues();
     // CHECK_EQ(names.size(), values.size());
     CHECK_EQ(specs.size(), values.size());
+    LOG(INFO) << "size: " << specs.size();
     for (size_t i = 0; i < ret.size(); i++) {
       string param_name = ret.at(i).first;
       Tensor nvalue = ret.at(i).second;
       LOG(INFO) << "parameter name: " << param_name;
       size_t idx = GetIndexByName(specs, param_name);
       LOG(INFO) << "index: " << idx;
-      if (idx >= ret.size()) continue;
+      if (idx >= specs.size()) continue;
       // if not find corresponding layer, do not need to reload param
       LOG(INFO) << specs[idx].name() << " : " << values[idx].L1();
       UpdateParam(values[idx], nvalue);
@@ -457,7 +462,7 @@ void Train(int num_epoch, float lr, size_t batchsize, size_t train_file_size,
       if (state == 2) {
         // finetune only last building block and fc layer
         // set lr of other layers to 0 to forbid learning
-        vector<string> ft_layers = {/*"conv5a", "bn5a", "conv5b", "bn5b",*/
+        vector<string> ft_layers = {"conv5a", "bn5a", "conv5b", "bn5b",
                       "ip6-1a", "ip6-1p", "ip6-1n"};
         for (size_t i = 0; i < ft_layers.size(); i++) {
           size_t tmp_idx = param_name.find(ft_layers[i]);
@@ -474,19 +479,21 @@ void Train(int num_epoch, float lr, size_t batchsize, size_t train_file_size,
   val_ch->EnableDestStderr(true);
   size_t num_train_files = num_train_images / train_file_size +
                            (num_train_images % train_file_size ? 1 : 0);
+  LOG(INFO) << "number of training files: " << num_train_files;
   for (int epoch = (state == 1) ? nepoch + 1 : 0; epoch < num_epoch; epoch++) {
     float epoch_lr = sgd.GetLearningRate(epoch);
     auto names = net.GetParamNames();
     auto values = net.GetParamValues();
-    if (state)
+    if (state && epoch > 0)
       for (size_t k = 0; k < names.size(); k++)
         LOG(INFO) << names[k] << " : " << values[k].L1();
     TrainOneEpoch(net, data, cuda, epoch, bin_folder, num_train_files,
                   batchsize, epoch_lr, train_ch, pfreq, nthreads);
-    if (epoch % ((state == 2) ? 5 : 10) == 0 && epoch > 0) {
-      string prefix = "5e-2/snapshot_epoch" + std::to_string(epoch);
+    if (epoch % 2/*((state == 2) ? 2: 5)i*/ == 0 && epoch > 0) {
+      string prefix = "snapshot_epoch" + std::to_string(epoch);
       Checkpoint(net, prefix);
     }
+    LOG(INFO) << "test on epoch " << epoch;
     TestOneEpoch(net, data, cuda, epoch, bin_folder, num_test_images, batchsize,
                  val_ch, nthreads);
   }
@@ -557,7 +564,7 @@ int main(int argc, char **argv) {
   if (pos != -1) state = argv[pos + 1];
 
   pos = singa::ArgPos(argc, argv, "-snapshot");
-  string snapshot = "snapshot_epoch50";
+  string snapshot = "snapshot_epoch35";
   if(pos != -1) snapshot = argv[pos + 1];
 
   LOG(INFO) << "Start training";
