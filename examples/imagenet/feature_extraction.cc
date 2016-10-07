@@ -411,7 +411,7 @@ void ExtractQuery(FeedForwardNet &net, TRIPLET &data,
   Shape shape = fea.shape();
   shape.at(0) /= fea.shape(0);
   size_t size = fea.Size() / fea.shape(0);
-  LOG(INFO) << "size: " << size;
+  LOG(INFO) << "size: " << size << ", feat[0]:" << d[0];
   for (size_t i = 0; i < fea.shape(0); i++) {
     Tensor tmp(shape);
     tmp.CopyDataFromHostPtr<float>(d + i * size, size);
@@ -497,8 +497,8 @@ void Extract(size_t batchsize, size_t train_file_size, string bin_folder,
   LOG(INFO) << "snapshot : " << snapshot;
   LOG(INFO) << "layer name : " << layer_name;
   LOG(INFO) << "number of evaluate files: " << num_eval_files;
-  ExtractOnBatch(net, data, cuda, bin_folder, num_eval_files,
-                  batchsize, layer_name, tar_folder, pfreq, nthreads);
+  //ExtractOnBatch(net, data, cuda, bin_folder, num_eval_files,
+  //                batchsize, layer_name, tar_folder, pfreq, nthreads);
   ExtractQuery(net, data, cuda, bin_folder, layer_name, tar_folder, nthreads);
 }
 }
