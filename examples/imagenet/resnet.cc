@@ -207,23 +207,23 @@ FeedForwardNet CreateNet() {
 
   std::shared_ptr<Layer> b2a = BuildingBlock(net, "2a", 64, 1, 0.01, pool1);
   std::shared_ptr<Layer> b2b = BuildingBlock(net, "2b", 64, 1, 0.01, b2a);
-  //std::shared_ptr<Layer> b2c = BuildingBlock(net, "2c", 64, 1, 0.01, b2b);
+  std::shared_ptr<Layer> b2c = BuildingBlock(net, "2c", 64, 1, 0.01, b2b);
 
-  std::shared_ptr<Layer> b3a = BuildingBlock(net, "3a", 128, 2, 0.01, b2b);
+  std::shared_ptr<Layer> b3a = BuildingBlock(net, "3a", 128, 2, 0.01, b2c);
   std::shared_ptr<Layer> b3b = BuildingBlock(net, "3b", 128, 1, 0.01, b3a);
-  //std::shared_ptr<Layer> b3c = BuildingBlock(net, "3c", 128, 1, 0.01, b3b);
-  //std::shared_ptr<Layer> b3d = BuildingBlock(net, "3d", 128, 1, 0.01, b3c);
+  std::shared_ptr<Layer> b3c = BuildingBlock(net, "3c", 128, 1, 0.01, b3b);
+  std::shared_ptr<Layer> b3d = BuildingBlock(net, "3d", 128, 1, 0.01, b3c);
 
-  std::shared_ptr<Layer> b4a = BuildingBlock(net, "4a", 256, 2, 0.01, b3b);
+  std::shared_ptr<Layer> b4a = BuildingBlock(net, "4a", 256, 2, 0.01, b3d);
   std::shared_ptr<Layer> b4b = BuildingBlock(net, "4b", 256, 1, 0.01, b4a);
-  //std::shared_ptr<Layer> b4c = BuildingBlock(net, "4c", 256, 1, 0.01, b4b);
-  //std::shared_ptr<Layer> b4d = BuildingBlock(net, "4d", 256, 1, 0.01, b4c);
-  //std::shared_ptr<Layer> b4e = BuildingBlock(net, "4e", 256, 1, 0.01, b4d);
-  //std::shared_ptr<Layer> b4f = BuildingBlock(net, "4f", 256, 1, 0.01, b4e);
+  std::shared_ptr<Layer> b4c = BuildingBlock(net, "4c", 256, 1, 0.01, b4b);
+  std::shared_ptr<Layer> b4d = BuildingBlock(net, "4d", 256, 1, 0.01, b4c);
+  std::shared_ptr<Layer> b4e = BuildingBlock(net, "4e", 256, 1, 0.01, b4d);
+  std::shared_ptr<Layer> b4f = BuildingBlock(net, "4f", 256, 1, 0.01, b4e);
 
-  std::shared_ptr<Layer> b5a = BuildingBlock(net, "5a", 512, 2, 0.01, b4b);
-  //std::shared_ptr<Layer> b5b = BuildingBlock(net, "5b", 512, 1, 0.01, b5a);
-  BuildingBlock(net, "5b", 512, 1, 0.01, b5a);
+  std::shared_ptr<Layer> b5a = BuildingBlock(net, "5a", 512, 2, 0.01, b4f);
+  std::shared_ptr<Layer> b5b = BuildingBlock(net, "5b", 512, 1, 0.01, b5a);
+  BuildingBlock(net, "5c", 512, 1, 0.01, b5b);
 
   net.Add(GenPoolingConf("pool5", false, 7, 1, 0));
   net.Add(GenFlattenConf("flat"));
@@ -243,28 +243,28 @@ FeedForwardNet CreateNet2() {
 
   std::shared_ptr<Layer> b2a = BuildingBlock(net, "2a", 64, 1, 0.01, pool1);
   std::shared_ptr<Layer> b2b = BuildingBlock(net, "2b", 64, 1, 0.01, b2a);
-  //std::shared_ptr<Layer> b2c = BuildingBlock(net, "2c", 64, 1, 0.01, b2b);
+  std::shared_ptr<Layer> b2c = BuildingBlock(net, "2c", 64, 1, 0.01, b2b);
 
-  std::shared_ptr<Layer> b3a = BuildingBlock(net, "3a", 128, 2, 0.01, b2b);
+  std::shared_ptr<Layer> b3a = BuildingBlock(net, "3a", 128, 2, 0.01, b2c);
   std::shared_ptr<Layer> b3b = BuildingBlock(net, "3b", 128, 1, 0.01, b3a);
-  //std::shared_ptr<Layer> b3c = BuildingBlock(net, "3c", 128, 1, 0.01, b3b);
-  //std::shared_ptr<Layer> b3d = BuildingBlock(net, "3d", 128, 1, 0.01, b3c);
+  std::shared_ptr<Layer> b3c = BuildingBlock(net, "3c", 128, 1, 0.01, b3b);
+  std::shared_ptr<Layer> b3d = BuildingBlock(net, "3d", 128, 1, 0.01, b3c);
 
-  std::shared_ptr<Layer> b4a = BuildingBlock(net, "4a", 256, 2, 0.01, b3b);
+  std::shared_ptr<Layer> b4a = BuildingBlock(net, "4a", 256, 2, 0.01, b3d);
   std::shared_ptr<Layer> b4b = BuildingBlock(net, "4b", 256, 1, 0.01, b4a);
-  //std::shared_ptr<Layer> b4c = BuildingBlock(net, "4c", 256, 1, 0.01, b4b);
-  //std::shared_ptr<Layer> b4d = BuildingBlock(net, "4d", 256, 1, 0.01, b4c);
-  //std::shared_ptr<Layer> b4e = BuildingBlock(net, "4e", 256, 1, 0.01, b4d);
-  //std::shared_ptr<Layer> b4f = BuildingBlock(net, "4f", 256, 1, 0.01, b4e);
+  std::shared_ptr<Layer> b4c = BuildingBlock(net, "4c", 256, 1, 0.01, b4b);
+  std::shared_ptr<Layer> b4d = BuildingBlock(net, "4d", 256, 1, 0.01, b4c);
+  std::shared_ptr<Layer> b4e = BuildingBlock(net, "4e", 256, 1, 0.01, b4d);
+  std::shared_ptr<Layer> b4f = BuildingBlock(net, "4f", 256, 1, 0.01, b4e);
 
-  std::shared_ptr<Layer> b5a = BuildingBlock(net, "5a", 512, 2, 0.01, b4b);
-  //std::shared_ptr<Layer> b5b = BuildingBlock(net, "5b", 512, 1, 0.01, b5a);
-  BuildingBlock(net, "5b", 512, 1, 0.01, b5a);
+  std::shared_ptr<Layer> b5a = BuildingBlock(net, "5a", 512, 2, 0.01, b4f);
+  std::shared_ptr<Layer> b5b = BuildingBlock(net, "5b", 512, 1, 0.01, b5a);
+  BuildingBlock(net, "5c", 512, 1, 0.01, b5b);
 
   net.Add(GenPoolingConf("pool5", false, 7, 1, 0));
   net.Add(GenFlattenConf("flat"));
   net.Add(GenDenseConf("ip6-1", 1000, 0.01, 1));
-  net.Add(GenDenseConf("ip6-2", 676, 0.01, 1));
+  //net.Add(GenDenseConf("ip6-2", 676, 0.01, 1));
 
   return net;
 }
@@ -461,7 +461,7 @@ void Train(int num_epoch, float lr, size_t batchsize, size_t train_file_size,
       [lr](int epoch) { return lr * std::pow(0.1, epoch / 5); });
   else
     sgd.SetLearningRateGenerator(
-      [lr](int epoch) { return lr * std::pow(0.1, epoch / 15); });
+      [lr](int epoch) { return lr * std::pow(0.1, epoch / 10); });
 
   SoftmaxCrossEntropy loss;
   Accuracy acc;
@@ -516,7 +516,7 @@ void Train(int num_epoch, float lr, size_t batchsize, size_t train_file_size,
     TrainOneEpoch(net, data, cuda, epoch, bin_folder, num_train_files,
                   batchsize, epoch_lr, train_ch, pfreq, nthreads);
     if (epoch % ((state == 2)?5:10) == 0 && epoch > 0) {
-      string prefix = "snapshot_epoch" + std::to_string(epoch);
+      string prefix = "snapshot_resnet34_epoch" + std::to_string(epoch);
       Checkpoint(net, prefix);
     }
     TestOneEpoch(net, data, cuda, epoch, bin_folder, num_test_images, batchsize,
@@ -565,7 +565,7 @@ int main(int argc, char **argv) {
   if (pos != -1) train_file_size = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-ntrain");
-  size_t num_train_images = 921415; //1281167;
+  size_t num_train_images = 1281167; //921415; //1281167;
   if (pos != -1) num_train_images = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-ntest");

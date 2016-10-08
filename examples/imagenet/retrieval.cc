@@ -101,6 +101,7 @@ void FEATLOADER::LoadData(string file, size_t read_size, Tensor *x,
   int nfeat = feats.size();
   LOG(INFO) << "nfeat: " << nfeat;
   *n_read = nfeat;
+  if (!nfeat) return;
 
   vector<std::thread> threads;
   for (int i = 1; i < nthreads; i++) {
@@ -154,11 +155,9 @@ void ComputeDist(int thid, int nthreads, Tensor a, Tensor b, Tensor* c) {
     Tensor q(Shape{dim});
     Tensor out(Shape{ndb});
     CopyDataToFrom(&q, a, dim, 0, k * dim);
-    //LOG(INFO) << "get query data";
     Tensor diff = b;
     SubRow(q, &diff);
     SumColumns(Square(diff), &out);
-    //LOG(INFO) << "get dist.";
     CopyDataToFrom(c, out, ndb, k * ndb, 0);
   }
   if (!thid) {
@@ -174,8 +173,11 @@ void ComputeDist(int thid, int nthreads, Tensor a, Tensor b, Tensor* c) {
 }
 
 void ComputeDist(Tensor& a, Tensor& b, Tensor* c) {
+  // a{nq, dim}, b{ndb, dim}, c{nq, ndb}
   size_t nquery = a.shape(0), dim = a.shape(1), ndb = b.shape(0);
   c->Reshape(Shape{nquery, ndb});
+  LOG(INFO) << "compute dist between bz and nquery: nquery->"
+    << nquery << ", ndb->" << ndb << ", dim->" << dim;
   const float* data = a.data<float>();
   for (size_t i = 0; i < nquery; i++) {
     Tensor q(Shape{dim}), out(Shape{ndb});
@@ -194,17 +196,21 @@ std::thread AsyncComputeDist(int thid, int nthreads, Tensor a, Tensor b, Tensor*
 }
 
 void AppendDist(Tensor& a, Tensor* b, size_t offset) {
-  size_t query = a.shape(0), bz = a.shape(1), ndb = b->shape(0);
-  for (size_t i = 0; i < query; i++)
+  // a{nq, bz}, b{nq, ndb}
+  // append batch result to ndb list
+  size_t nquery = a.shape(0), bz = a.shape(1), ndb = b->shape(1);
+  LOG(INFO) << "append bz data to list: nquery->" << nquery
+    << ", batchisize->" << bz  << ", ndb->" << ndb;
+  for (size_t i = 0; i < nquery; i++)
     CopyDataToFrom(b, a, bz, i * ndb + offset, i * bz);
 }
 
 void SortDist(Tensor& ret, vector<vector<size_t>> *idx, vector<vector<float>> *dist) {
   size_t nquery = ret.shape(0);
   size_t ndb = ret.shape(1);
-  LOG(INFO) << "query: " << nquery << ", db: " << ndb;
+  LOG(INFO) << "sorting, query: " << nquery << ", db: " << ndb;
   const float* data = ret.data<float>();
-  LOG(INFO) << "res: " << data[0];
+  //LOG(INFO) << "res: " << data[0];
   for (size_t i = 0; i < nquery; i++) {
     vector<float> d(data + i * ndb, data + (i + 1) * ndb);
     vector<size_t> index(ndb);
@@ -214,14 +220,12 @@ void SortDist(Tensor& ret, vector<vector<size_t>> *idx, vector<vector<float>> *d
     std::sort(std::begin(index), std::end(index),
         [&] (float d1, float d2) { return d[d1] < d[d2]; });
 
-    LOG(INFO) << "i: " << i;
-    for (size_t j = 0; j < ndb; j++) {
-      if (index[j] < 20) {
-        idx->at(i)[index[j]] = j;
-        dist->at(i)[index[j]] = d[j];
-        if(!i) LOG(INFO) << "index y: " << index[j]
-          << "idx is: " << j << ", dist:" << d[j];
-      }
+    //LOG(INFO) << "i: " << i;
+    for (size_t j = 0; j < 100; j++) {
+      idx->at(i)[j] = index[j];
+      dist->at(i)[j] = d[index[j]];
+      //if(!i) LOG(INFO) << "index y: " << index[j]
+      //   << ", dist:" << d[index[j]];
     }
   }
 }
@@ -253,115 +257,108 @@ void WriteResults(vector<vector<float>> &dis, vector<vector<size_t>> &idx,
   file.close();
 }
 
-void Retrieve(size_t batchsize, size_t feat_file_size, string bin_folder,
+void Retrieve(size_t batchsize, size_t num_eval_feats, string bin_folder,
               size_t num_eval_files, string query_file, string img_file,
               string tar_file, int nthreads) {
   FEATLOADER loader;
   float load_time = 0.f, search_time = 0.f;
-  size_t n_read, batch_num = 0;
-  size_t query = 100, total = 20;//1069124;
+  size_t n_read, offset = 0;
+  size_t query = 100, filesize = 0;
   string binfile = bin_folder + "/feat1.bin";
   string qbinfile = bin_folder + "/qfeat.bin";
   Timer timer, ttr;
   timer.Tick();
-  Tensor prefetch_q, prefetch_x, ret(Shape{query, total});
+  Tensor prefetch_q, prefetch_x, ret(Shape{query, num_eval_feats});
   loader.LoadData(qbinfile, query, &prefetch_q, &n_read, nthreads);
   loader.LoadData(binfile, batchsize, &prefetch_x, &n_read, nthreads);
   Tensor eval_x(prefetch_x.shape());
-  LOG(INFO) << "shape q: " << prefetch_q.shape(0) << prefetch_q.shape(1);
-  LOG(INFO) << "shape x: " << prefetch_x.shape(0) << prefetch_x.shape(1);
+  LOG(INFO) << "shape q: " << prefetch_q.shape(0) << "," << prefetch_q.shape(1);
+  LOG(INFO) << "shape x: " << prefetch_x.shape(0) << "," << prefetch_x.shape(1);
+  LOG(INFO) << "shape ret: " << ret.shape(0) << "," << ret.shape(1);
   // const float* data = prefetch_x.data<float>();
   //LOG(INFO) << "first 3 data: " << data[0] << data[1] << data[2];
+  filesize += n_read;
   load_time += timer.Elapsed();
   std::thread th;
   LOG(INFO) << "number of evaluation files: " << num_eval_files;
   for (size_t fno = 1; fno <= num_eval_files; fno++) {
     binfile = bin_folder + "/feat" + std::to_string(fno) + ".bin";
+    LOG(INFO) << "loading from eval file: " << binfile;
     while(true) {
+      //LOG(INFO) << "n_read: " << n_read;
       if (th.joinable()) {
         th.join();
         load_time += timer.Elapsed();
         // LOG(INFO) << "num of samples: " << n_read;
         if (n_read < batchsize) {
-          if (n_read > 0) {
-            LOG(WARNING) << "Pls set batchsize to make num_total_samples "
+          /*if (n_read > 0) {
+            LOG(WARNING) << "Pls set batchsize to make num_total_feats "
                          << "% batchsize == 0. Otherwise, the last " << n_read
                          << " samples would not be used";
-          }
+          }*/
           break;
         }
       }
-      timer.Tick();
-      if (n_read == batchsize) eval_x.CopyData(prefetch_x);
-      //th = loader.AsyncLoadData(binfile, batchsize, &prefetch_x, &n_read, nthreads);
-      if (n_read < batchsize) continue;
-      ttr.Tick();
+      if (n_read == batchsize) {
+        ttr.Tick();
+        eval_x.CopyData(prefetch_x);
 
-      // compute distnace
-      vector<std::thread> threads;
-      Tensor tmp{Shape(query, n_read)};
-      /*for (int i = 1; i < nthreads; i++)
-        threads.push_back(AsyncComputeDist(i, nthreads,
+        // compute distnace
+        vector<std::thread> threads;
+        Tensor tmp{Shape(query, n_read)};
+        for (int i = 1; i < nthreads; i++)
+          threads.push_back(AsyncComputeDist(i, nthreads,
               prefetch_q, eval_x, &tmp));
-      ComputeDist(0, nthreads, prefetch_q, eval_x, &tmp);
-      for (size_t i = 0; i < threads.size(); i++) threads[i].join();*/
-      ComputeDist(prefetch_q, eval_x, &tmp);
-      const float* dist = tmp.data<float>();
-      LOG(INFO) << "dist:" << dist[0];
-      AppendDist(tmp, &ret, (batch_num++) * batchsize);
-      search_time += ttr.Elapsed();
-      break;
+        ComputeDist(0, nthreads, prefetch_q, eval_x, &tmp);
+        for (size_t i = 0; i < threads.size(); i++) threads[i].join();
+       // ComputeDist(prefetch_q, eval_x, &tmp);
+        //const float* dist = tmp.data<float>();
+        LOG(INFO) << ", offest: " << offset << ", bz size: " << tmp.shape(1);
+        AppendDist(tmp, &ret, offset);
+        offset += batchsize;
+        filesize += batchsize;
+        search_time += ttr.Elapsed();
+      }
+      timer.Tick();
+      th = loader.AsyncLoadData(binfile, batchsize, &prefetch_x, &n_read, nthreads);
+      //if (n_read < batchsize) continue;
     }
-  if (n_read < batchsize && n_read > 0) {
-    ttr.Tick();
-    LOG(INFO) << "last batch: " << prefetch_x.shape(1);
-    Tensor x(Shape{n_read, prefetch_x.shape(1)});
-    CopyDataToFrom(&x, prefetch_x, x.Size(), 0, 0);
-
-    // compute distnace of the last batch
-    vector<std::thread> threads;
-    Tensor tmp(Shape{query, n_read});
-    for (int i = 1; i < nthreads; i++)
-      threads.push_back(AsyncComputeDist(i, nthreads,
-            prefetch_q, x, &tmp));
-    ComputeDist(0, nthreads, prefetch_q, x, &tmp);
-    for (size_t i = 0; i < threads.size(); i++) threads[i].join();
-
-    LOG(INFO) << "compute dist done.";
-    AppendDist(tmp, &ret, batch_num * batchsize);
-    search_time += ttr.Elapsed();
-  }
-  }
     if (n_read < batchsize && n_read > 0) {
-    ttr.Tick();
-    LOG(INFO) << "last batch: " << prefetch_x.shape(1);
-    Tensor x(Shape{n_read, prefetch_x.shape(1)});
-    CopyDataToFrom(&x, prefetch_x, x.Size(), 0, 0);
+      ttr.Tick();
+      LOG(INFO) << "last batch: " << n_read << prefetch_x.shape(1);
+      Tensor x(Shape{n_read, prefetch_x.shape(1)});
+      CopyDataToFrom(&x, prefetch_x, x.Size(), 0, 0);
 
-    // compute distnace of the last batch
-    vector<std::thread> threads;
-    Tensor tmp(Shape{query, n_read});
-    for (int i = 1; i < nthreads; i++)
-      threads.push_back(AsyncComputeDist(i, nthreads,
+      // compute distnace of the last batch
+      vector<std::thread> threads;
+      Tensor tmp(Shape{query, n_read});
+      for (int i = 1; i < nthreads; i++)
+        threads.push_back(AsyncComputeDist(i, nthreads,
             prefetch_q, x, &tmp));
-    ComputeDist(0, nthreads, prefetch_q, x, &tmp);
-    for (size_t i = 0; i < threads.size(); i++) threads[i].join();
+      ComputeDist(0, nthreads, prefetch_q, x, &tmp);
+      for (size_t i = 0; i < threads.size(); i++) threads[i].join();
 
-    LOG(INFO) << "compute dist done.";
-    AppendDist(tmp, &ret, batch_num * batchsize);
-    search_time += ttr.Elapsed();
+      LOG(INFO) << "offest: " << offset << ", bz size: " << tmp.shape(1);
+      AppendDist(tmp, &ret, offset);
+      offset += n_read;
+      filesize += n_read;
+      search_time += ttr.Elapsed();
+    }
+    LOG(INFO) << "file " + binfile << ", loading time: "
+      << load_time / filesize * 1000 << "ms, search time: "
+      << search_time / filesize * 1000 << "ms";
+    load_time = 0.f;
+    search_time = 0.f;
   }
-  //float dis[query][20] = {0.f};
-  //size_t idx[query][20] = {0};
-  vector<vector<float>> dis(query, vector<float>(20, 0.f));
-  vector<vector<size_t>> idx(query, vector<size_t>(20, 0));
+  vector<vector<float>> dis(query, vector<float>(100, 0.f));
+  vector<vector<size_t>> idx(query, vector<size_t>(100, 0));
   SortDist(ret, &idx, &dis);
   WriteResults(dis, idx, tar_file, query_file, img_file);
-  LOG(INFO) << "write result to file " << tar_file;
+  LOG(INFO) << "Write results to file " << tar_file;
 
   for (size_t i = 0; i < query; i++) {
-    dis[i].erase(dis[i].begin(), dis[i].begin() + 20);
-    idx[i].erase(idx[i].begin(), idx[i].begin() + 20);
+    dis[i].erase(dis[i].begin(), dis[i].begin() + 100);
+    idx[i].erase(idx[i].begin(), idx[i].begin() + 100);
   }
   dis.erase(dis.begin(), dis.begin() + query);
   idx.erase(idx.begin(), idx.begin() + query);
@@ -392,15 +389,15 @@ int main(int argc, char **argv) {
     return 0;
   }
   pos = singa::ArgPos(argc, argv, "-batchsize");
-  int batchsize = 10000;
+  int batchsize = 25600;
   if (pos != -1) batchsize = atof(argv[pos + 1]);
 
-  pos = singa::ArgPos(argc, argv, "-filesize");
-  size_t feat_file_size = 1280;
-  if (pos != -1) feat_file_size = atoi(argv[pos + 1]);
+  pos = singa::ArgPos(argc, argv, "-featsize");
+  size_t feat_size = 1069124; //1281167;
+  if (pos != -1) feat_size = atoi(argv[pos + 1]);
 
-  pos = singa::ArgPos(argc, argv, "-neval");
-  size_t num_eval_files = 1;//1069124; //1281167;
+  pos = singa::ArgPos(argc, argv, "-evalfiles");
+  size_t num_eval_files = 42;
   if (pos != -1) num_eval_files = atoi(argv[pos + 1]);
 
   pos = singa::ArgPos(argc, argv, "-data");
@@ -428,7 +425,7 @@ int main(int argc, char **argv) {
   if (pos != -1) nthreads = atoi(argv[pos + 1]);
 
   LOG(INFO) << "Start retrieval";
-  singa::Retrieve(batchsize, feat_file_size, bin_folder,
+  singa::Retrieve(batchsize, feat_size, bin_folder,
           num_eval_files, query_file, img_file, tar_file, nthreads);
   LOG(INFO) << "End retrieval";
 }

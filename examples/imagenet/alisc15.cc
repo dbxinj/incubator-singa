@@ -63,9 +63,9 @@ int main(int argc, char **argv) {
   LOG(INFO) << "Creating training and test data...";
   //data.CreateTrainData(train_image_list, train_image_folder, bin_folder,
   //                     train_file_size);
-  //data.CreateEvalData(train_image_list, train_image_folder, bin_folder,
-  //                     train_file_size);
-  data.CreateTestData(test_image_list, test_image_folder, bin_folder);
+  data.CreateEvalData(train_image_list, train_image_folder, bin_folder,
+                       train_file_size);
+  //data.CreateTestData(test_image_list, test_image_folder, bin_folder);
   LOG(INFO) << "Data created!";
   return 0;
 }

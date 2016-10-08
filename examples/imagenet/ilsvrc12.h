@@ -267,7 +267,7 @@ void ILSVRC::CreateEvalData(string image_list, string input_folder,
   if (file_size == 0) file_size = num_train_images;
   for (size_t imageid = 0; imageid < num_train_images; imageid++) {
     string path = input_folder + "/" + file_list[imageid].first;
-    Tensor image = ReadImage(path);
+    /*Tensor image = ReadImage(path);
     auto image_data = image.data<unsigned char>();
     for (size_t i = 0; i < kImageNBytes; i++)
       sum[i] += static_cast<size_t>(image_data[i]);
@@ -284,35 +284,35 @@ void ILSVRC::CreateEvalData(string image_list, string input_folder,
                 std::to_string(imageid / file_size + 1) + ".bin";
       writer->Open(outfile, kCreate);
     }
-    writer->Write(path, encoded_str);
-    if ((imageid + 1) % file_size == 0) {
-      writer->Flush();
-      writer->Close();
+    writer->Write(path, encoded_str);*/
+    //if ((imageid + 1) % file_size == 0) {
+    //  writer->Flush();
+    //  writer->Close();
       LOG(INFO) << "Write " << file_size << " images into " << outfile;
-      delete writer;
-      writer = nullptr;
-    }
+    //  delete writer;
+    //  writer = nullptr;
+    //}
   }
-  if (writer != nullptr) {
-    writer->Flush();
-    writer->Close();
+  //if (writer != nullptr) {
+  //  writer->Flush();
+  //  writer->Close();
     LOG(INFO) << "Write " << num_train_images % file_size << " images into "
               << outfile;
-    delete writer;
-    writer = nullptr;
-  }
+  //  delete writer;
+  //  writer = nullptr;
+  //}
   size_t num_file =
       num_train_images / file_size + ((num_train_images % file_size) ? 1 : 0);
   LOG(INFO) << "Write " << num_train_images << " images into " << num_file
             << " binary files";
-  Tensor mean = Tensor(Shape{3, kImageSize, kImageSize}, kUChar);
+  /*Tensor mean = Tensor(Shape{3, kImageSize, kImageSize}, kUChar);
   unsigned char *mean_data = new unsigned char[kImageNBytes];
   for (size_t i = 0; i < kImageNBytes; i++)
     mean_data[i] = static_cast<unsigned char>(sum[i] / num_train_images);
   mean.CopyDataFromHostPtr<unsigned char>(mean_data, kImageNBytes);
   string mean_path = output_folder + "/mean.bin";
   WriteMean(mean, mean_path);
-  delete[] mean_data;
+  delete[] mean_data;*/
   delete[] sum;
 }
 
